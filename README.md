@@ -19,9 +19,17 @@ Application du département Mission et Formation (React + Vite + Firebase, insta
 
 L'app affiche aussi le reste de chaque niveau après la part Convention.
 
+## Caisse & dépenses
+- Chaque assemblée a sa caisse ; la coordination nationale a la sienne (protégée par le code du chef du département).
+- **Recettes** : le reste après Convention de chaque rapport financier (part Assemblée, ou part Coordination pour la caisse nationale).
+- **Dépenses prévues** (réservées) et **dépenses effectuées** (payées), saisies dans « Caisse & dépenses ».
+- **Séminaires** : le budget d'un séminaire compte automatiquement comme dépense prévue ; dès que le rapport du séminaire déclare des dépenses, elles deviennent des dépenses effectuées. Les séminaires rejetés ne comptent pas.
+- **Solde en caisse** = recettes − dépenses effectuées (en rouge si négatif).
+- **Reste disponible à ne pas dépasser** = solde − dépenses prévues. L'app avertit avant toute dépense qui le dépasse.
+
 ## Données
 Toutes les données sont dans Firestore, collection `mpv-data` (voir `firestore.rules`).
-Les nouveaux documents sont `finance-reports` et `activity-reports`.
+Les nouveaux documents sont `finance-reports`, `activity-reports` et `expense-reports`.
 
 ## Commandes
 - `npm install` puis `npm run dev` pour lancer en local

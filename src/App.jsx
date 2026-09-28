@@ -844,6 +844,7 @@ export default function App() {
   const [missionaries, setMissionaries] = useState([]);
   const [financeReports, setFinanceReports] = useState([]);
   const [activityReports, setActivityReports] = useState([]);
+  const [expenseReports, setExpenseReports] = useState([]);
   const [coordUnlocked, setCoordUnlocked] = useState(false);
   const [coordNatUnlocked, setCoordNatUnlocked] = useState(false);
   const [toast, setToast] = useState(null);
@@ -874,7 +875,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [r, p, s, l, wp, sr, cs, dh, ap, br, mi, pa, ph, fr, ar] = await Promise.all([
+      const [r, p, s, l, wp, sr, cs, dh, ap, br, mi, pa, ph, fr, ar, er] = await Promise.all([
         loadKey("regions-assemblies", REGIONS_DEFAULT),
         loadKey("pastors-directory", PASTORS_DEFAULT),
         loadKey("seminars-list", []),
@@ -890,13 +891,14 @@ export default function App() {
         loadKey("pastors-photos", {}),
         loadKey("finance-reports", []),
         loadKey("activity-reports", []),
+        loadKey("expense-reports", []),
       ]);
       const pWithPhotos = p.map(x => ({ ...x, photo: (ph && ph[x.id]) || x.photo || null }));
       setRegions(r); setPastors(pWithPhotos); setPastorsPhotos(ph || {}); setSeminars(s); setLeadership(l);
       setWeeklyPrograms(wp); setSeminarReports(sr);
       setCoordSeminars(cs); setDeptHeads(dh); setActionPlans(ap);
       setBibleReports(br); setMissionaries(mi); setPlansAnnuels(pa);
-      setFinanceReports(fr); setActivityReports(ar);
+      setFinanceReports(fr); setActivityReports(ar); setExpenseReports(er);
       setLoading(false);
     })();
   }, []);
@@ -955,6 +957,8 @@ export default function App() {
   const deleteFinance = (entry) => upsertShared("finance-reports", setFinanceReports, entry, true);
   const saveActivity = (entry) => upsertShared("activity-reports", setActivityReports, entry, false);
   const deleteActivity = (entry) => upsertShared("activity-reports", setActivityReports, entry, true);
+  const saveExpense = (entry) => upsertShared("expense-reports", setExpenseReports, entry, false);
+  const deleteExpense = (entry) => upsertShared("expense-reports", setExpenseReports, entry, true);
 
   const upcomingCount = useMemo(
     () => seminars.filter(s => { const d = daysUntil(s.date); return d !== null && d >= 0 && d <= 7; }).length,
@@ -1013,6 +1017,8 @@ export default function App() {
           <FinancesTab
             regions={regions} leadership={leadership}
             financeReports={financeReports} saveFinance={saveFinance} deleteFinance={deleteFinance}
+            expenseReports={expenseReports} saveExpense={saveExpense} deleteExpense={deleteExpense}
+            seminars={seminars} coordSeminars={coordSeminars} seminarReports={seminarReports}
             unlocked={coordUnlocked} onUnlock={unlockCoord} onLock={lockCoord}
             showToast={showToast}
           />
@@ -4162,7 +4168,11 @@ function FinanceSplitTable({ report }) {
   );
 }
 
-function FinancesTab({ regions, leadership, financeReports, saveFinance, deleteFinance, unlocked, onUnlock, onLock, showToast }) {
+function FinancesTab({ regions, leadership, financeReports, saveFinance, deleteFinance, expenseReports, saveExpense, deleteExpense, seminars, coordSeminars, seminarReports, unlocked, onUnlock, onLock, showToast }) {
+  const allExpenses = useMemo(
+    () => [...(expenseReports || []), ...seminarExpenses(seminars, coordSeminars, seminarReports)],
+    [expenseReports, seminars, coordSeminars, seminarReports]
+  );
   const [subTab, setSubTab] = useState("deposer");
   const [assemblee, setAssemblee] = useState(() => { try { return localStorage.getItem("mpv-fin-assemblee") || ""; } catch (e) { return ""; } });
   const [editing, setEditing] = useState(null);
@@ -4191,11 +4201,19 @@ function FinancesTab({ regions, leadership, financeReports, saveFinance, deleteF
       <SectionTitle sub="Chaque financier d'assemblée dépose ici le rapport financier de la semaine">Finances</SectionTitle>
 
       <div style={{ display: "flex", gap: 6, marginBottom: 16, background: "#fff", padding: 4, borderRadius: 11, border: "1px solid var(--border)" }}>
-        <button onClick={() => setSubTab("deposer")} style={segButtonStyle(subTab === "deposer")}>Déposer un rapport</button>
-        <button onClick={() => setSubTab("recap")} style={segButtonStyle(subTab === "recap")}>Récapitulatif national</button>
+        <button onClick={() => setSubTab("deposer")} style={segButtonStyle(subTab === "deposer")}>Recettes</button>
+        <button onClick={() => setSubTab("caisse")} style={segButtonStyle(subTab === "caisse")}>Caisse & dépenses</button>
+        <button onClick={() => setSubTab("recap")} style={segButtonStyle(subTab === "recap")}>National</button>
       </div>
 
-      {subTab === "deposer" ? (
+      {subTab === "caisse" ? (
+        <CaisseTab
+          regions={regions} leadership={leadership} assemblee={assemblee} chooseAssemblee={chooseAssemblee}
+          financeReports={financeReports} allExpenses={allExpenses}
+          saveExpense={saveExpense} deleteExpense={deleteExpense}
+          unlocked={unlocked} onUnlock={onUnlock} onLock={onLock} showToast={showToast}
+        />
+      ) : subTab === "deposer" ? (
         <>
           <Field label="Mon assemblée">
             <AssembleeSelect regions={regions} value={assemblee} onChange={chooseAssemblee} />
@@ -4252,7 +4270,7 @@ function FinancesTab({ regions, leadership, financeReports, saveFinance, deleteF
           )}
         </>
       ) : (
-        <FinanceRecap regions={regions} leadership={leadership} financeReports={financeReports} unlocked={unlocked} onUnlock={onUnlock} onLock={onLock} />
+        <FinanceRecap regions={regions} leadership={leadership} financeReports={financeReports} allExpenses={allExpenses} unlocked={unlocked} onUnlock={onUnlock} onLock={onLock} />
       )}
 
       {editing && (
@@ -4384,7 +4402,7 @@ function FinanceForm({ entry, financeReports, onSave, onDelete, onClose }) {
   );
 }
 
-function FinanceRecap({ regions, leadership, financeReports, unlocked, onUnlock, onLock }) {
+function FinanceRecap({ regions, leadership, financeReports, allExpenses, unlocked, onUnlock, onLock }) {
   const semaines = [...new Set(financeReports.map(r => r.semaine))].sort().reverse();
   const [semaine, setSemaine] = useState(semaines[0] || "");
   const [ouvert, setOuvert] = useState(null);
@@ -4462,6 +4480,8 @@ function FinanceRecap({ regions, leadership, financeReports, unlocked, onUnlock,
             <div style={{ fontSize: 12.5, color: "#1F7A5C", fontWeight: 700, marginBottom: 12 }}>Toutes les assemblées ont déposé leur rapport.</div>
           )}
 
+          <CaissesOverview regions={regions} financeReports={financeReports} allExpenses={allExpenses} />
+
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
             {list.map(r => {
               const F = computeFinance(r);
@@ -4498,6 +4518,424 @@ function FinanceRecap({ regions, leadership, financeReports, unlocked, onUnlock,
             <Send size={13} /> Partager ce récapitulatif par WhatsApp
           </a>
         </>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  CAISSE & DÉPENSES                                                  */
+/* ------------------------------------------------------------------ */
+
+const EXPENSE_CATS = [
+  "Séminaire", "Transport", "Hébergement", "Restauration", "Sonorisation & salle",
+  "Lieu de culte / loyer", "Travaux & entretien", "Social / aide", "Fonctionnement", "Divers",
+];
+const EXPENSE_STATUTS = {
+  previsionnel: { label: "Prévue", tone: "var(--accent-dark)", bg: "var(--accent-soft)" },
+  reel: { label: "Effectuée", tone: "var(--danger)", bg: "#F5E4E4" },
+};
+
+// Dépenses envoyées automatiquement par les séminaires et programmes :
+// - le budget d'un séminaire compte comme dépense prévue ;
+// - dès qu'un rapport de séminaire déclare des dépenses, elles deviennent réelles.
+function seminarExpenses(seminars, coordSeminars, seminarReports) {
+  const out = [];
+  const reelParSeminaire = {};
+  (seminarReports || []).forEach(r => {
+    const m = Number(r.depensesTotal) || 0;
+    if (m <= 0) return;
+    if (r.seminarId) {
+      reelParSeminaire[r.seminarId] = (reelParSeminaire[r.seminarId] || 0) + m;
+    } else {
+      const coord = (r.niveau || "assemblee") === "coordination";
+      out.push({
+        id: `auto-rap-${r.id}`, auto: true, statut: "reel", niveau: coord ? "coordination" : "assemblee",
+        assemblee: coord ? "" : r.assemblee, date: r.semaine, categorie: "Séminaire", montant: m,
+        libelle: `Dépenses déclarées — rapport de la semaine du ${formatDateLong(r.semaine)}`,
+      });
+    }
+  });
+  const fromSeminar = (s, niveau) => {
+    if ((s.validationStatut || "attente") === "rejete") return;
+    const prevu = budgetTotal(s.budget);
+    const reel = reelParSeminaire[s.id] || 0;
+    if (reel <= 0 && prevu <= 0) return;
+    out.push({
+      id: `auto-sem-${s.id}`, auto: true, niveau, assemblee: niveau === "coordination" ? "" : s.assemblee,
+      date: s.date || "", categorie: "Séminaire",
+      statut: reel > 0 ? "reel" : "previsionnel", montant: reel > 0 ? reel : prevu, budgetPrevu: prevu,
+      libelle: `${s.type || "Séminaire"} — ${s.theme || "sans thème"}`,
+    });
+  };
+  (seminars || []).forEach(s => fromSeminar(s, "assemblee"));
+  (coordSeminars || []).forEach(s => fromSeminar(s, "coordination"));
+  return out;
+}
+
+function computeCaisse(niveau, assemblee, financeReports, allExpenses) {
+  const recettesList = (financeReports || [])
+    .filter(r => niveau === "coordination" || r.assemblee === assemblee)
+    .map(r => ({ id: `rec-${r.id}`, semaine: r.semaine, assemblee: r.assemblee, montant: computeFinance(r).apresConvention[niveau === "coordination" ? "coordination" : "assemblee"] }));
+  const depenses = (allExpenses || []).filter(e => e.niveau === niveau && (niveau === "coordination" || e.assemblee === assemblee));
+  const recettes = recettesList.reduce((s, r) => s + r.montant, 0);
+  const reel = depenses.filter(e => e.statut === "reel").reduce((s, e) => s + (Number(e.montant) || 0), 0);
+  const prevu = depenses.filter(e => e.statut !== "reel").reduce((s, e) => s + (Number(e.montant) || 0), 0);
+  const solde = recettes - reel;
+  return { recettes, reel, prevu, solde, disponible: solde - prevu, recettesList, depenses };
+}
+
+function caisseToText(titre, c) {
+  return [
+    `💰 *Caisse — ${titre}*`,
+    `Au ${formatDateLong(new Date().toISOString().slice(0, 10))}`,
+    "",
+    `Recettes (reste après Convention) : ${fcfa(c.recettes)}`,
+    `Dépenses effectuées : ${fcfa(c.reel)}`,
+    `${c.solde < 0 ? "🔴" : "🟢"} Solde en caisse : ${fcfa(c.solde)}`,
+    `Dépenses prévues : ${fcfa(c.prevu)}`,
+    `${c.disponible < 0 ? "🔴 DÉPASSEMENT" : "🟢 Disponible"} : ${fcfa(c.disponible)}`,
+    "", "Mission Parole de Vie Burkina",
+  ].join("\n");
+}
+
+function CaisseCard({ titre, c }) {
+  const rouge = c.solde < 0;
+  const depasse = c.disponible < 0;
+  const engage = c.reel + c.prevu;
+  const pct = c.recettes > 0 ? Math.min(100, Math.round(engage / c.recettes * 100)) : (engage > 0 ? 100 : 0);
+  const row = (label, val, color) => (
+    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "5px 0", borderBottom: "1px solid var(--border)" }}>
+      <span style={{ color: "var(--ink-soft)" }}>{label}</span>
+      <span style={{ fontWeight: 700, color: color || "var(--ink)", fontVariantNumeric: "tabular-nums" }}>{val}</span>
+    </div>
+  );
+  return (
+    <div style={{ background: "#fff", border: `1.5px solid ${rouge || depasse ? "var(--danger)" : "var(--border)"}`, borderRadius: 14, overflow: "hidden", marginBottom: 14 }}>
+      <div style={{ background: rouge ? "var(--danger)" : "var(--primary)", color: "#fff", padding: "13px 15px" }}>
+        <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em", opacity: .85, fontWeight: 700 }}>
+          {rouge ? "Caisse en rouge" : "Solde en caisse"} · {titre}
+        </div>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 700, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{fcfa(c.solde)}</div>
+      </div>
+      <div style={{ padding: "10px 15px 13px" }}>
+        {row("Recettes (reste après Convention)", fcfa(c.recettes), "#1F7A5C")}
+        {row("Dépenses effectuées", "− " + fcfa(c.reel), "var(--danger)")}
+        {row("Dépenses prévues (réservées)", "− " + fcfa(c.prevu), "var(--accent-dark)")}
+        <div style={{
+          display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 9, padding: "9px 11px", borderRadius: 10,
+          background: depasse ? "#F5E4E4" : "#E3F1EA", color: depasse ? "var(--danger)" : "#1F7A5C"
+        }}>
+          <span style={{ fontSize: 12.5, fontWeight: 700, display: "flex", alignItems: "center", gap: 5 }}>
+            {depasse ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
+            {depasse ? "Dépassement du budget" : "Reste disponible à ne pas dépasser"}
+          </span>
+          <span style={{ fontSize: 15, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{fcfa(c.disponible)}</span>
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--ink-soft)", marginBottom: 4 }}>
+            <span>Part des recettes engagée</span><span>{c.recettes > 0 ? `${Math.round(engage / c.recettes * 100)} %` : "—"}</span>
+          </div>
+          <div style={{ height: 7, background: "var(--border)", borderRadius: 99, overflow: "hidden" }}>
+            <div style={{ width: `${pct}%`, height: "100%", background: depasse ? "var(--danger)" : pct > 85 ? "var(--accent)" : "#1F7A5C" }} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CaisseTab({ regions, leadership, assemblee, chooseAssemblee, financeReports, allExpenses, saveExpense, deleteExpense, unlocked, onUnlock, onLock, showToast }) {
+  const [niveau, setNiveau] = useState("assemblee");
+  const [editing, setEditing] = useState(null);
+  const [filtre, setFiltre] = useState("tout");
+
+  const coord = niveau === "coordination";
+  const titre = coord ? "Coordination nationale" : assemblee;
+  const ready = coord ? unlocked : !!assemblee;
+  const c = ready ? computeCaisse(niveau, assemblee, financeReports, allExpenses) : null;
+
+  async function handleSave(entry) {
+    const ok = await saveExpense(entry);
+    if (ok) { setEditing(null); showToast(entry.statut === "reel" ? "Dépense enregistrée" : "Dépense prévue enregistrée"); }
+  }
+  async function handleDelete(entry) {
+    const ok = await deleteExpense(entry);
+    if (ok) { setEditing(null); showToast("Dépense supprimée"); }
+  }
+
+  const mouvements = c ? [
+    ...c.recettesList.map(r => ({ ...r, type: "recette", date: r.semaine })),
+    ...c.depenses.map(e => ({ ...e, type: "depense" })),
+  ].filter(m => filtre === "tout" || (filtre === "recettes" ? m.type === "recette" : filtre === "prevues" ? (m.type === "depense" && m.statut !== "reel") : (m.type === "depense" && m.statut === "reel")))
+    .sort((a, b) => (b.date || "").localeCompare(a.date || "")) : [];
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        {[["assemblee", "Caisse assemblée"], ["coordination", "Caisse coordination"]].map(([k, l]) => (
+          <button key={k} onClick={() => setNiveau(k)} style={{
+            flex: 1, padding: "8px 0", borderRadius: 9, fontSize: 12, fontWeight: 700,
+            border: `1.5px solid ${niveau === k ? "var(--primary)" : "var(--border)"}`,
+            background: niveau === k ? "var(--primary)" : "#fff", color: niveau === k ? "#fff" : "var(--ink-soft)"
+          }}>{l}</button>
+        ))}
+      </div>
+
+      {coord ? (
+        <CoordLockPanel
+          leadership={leadership} unlocked={unlocked} onUnlock={onUnlock} onLock={onLock}
+          description="La caisse de la coordination nationale est réservée au chef du département : elle reçoit la part Coordination (après Convention) de toutes les assemblées."
+        />
+      ) : (
+        <Field label="Mon assemblée">
+          <AssembleeSelect regions={regions} value={assemblee} onChange={chooseAssemblee} />
+        </Field>
+      )}
+
+      {c && (
+        <>
+          <CaisseCard titre={titre} c={c} />
+
+          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+            <div style={{ flex: 1 }}>
+              <PrimaryButton full icon={Plus} onClick={() => setEditing({
+                niveau, assemblee: coord ? "" : assemblee, statut: "reel",
+                date: new Date().toISOString().slice(0, 10), categorie: "Divers", libelle: "", montant: "", beneficiaire: "", observations: "",
+              })}>Ajouter une dépense</PrimaryButton>
+            </div>
+            <a href={shareWhatsappLink(caisseToText(titre, c))} target="_blank" rel="noopener noreferrer" aria-label="Partager la caisse par WhatsApp" style={{
+              background: "#25D366", color: "#fff", borderRadius: 10, padding: "0 14px", display: "flex", alignItems: "center"
+            }}>
+              <Send size={16} />
+            </a>
+          </div>
+
+          <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--ink)", marginBottom: 8 }}>Mouvements de caisse</div>
+          <div style={{ display: "flex", gap: 6, marginBottom: 10, overflowX: "auto" }}>
+            {[["tout", "Tout"], ["recettes", "Recettes"], ["reelles", "Effectuées"], ["prevues", "Prévues"]].map(([k, l]) => (
+              <button key={k} onClick={() => setFiltre(k)} style={{
+                flex: "0 0 auto", padding: "5px 11px", borderRadius: 99, fontSize: 11.5, fontWeight: 700,
+                border: "1px solid var(--border)", background: filtre === k ? "var(--ink)" : "#fff", color: filtre === k ? "#fff" : "var(--ink-soft)"
+              }}>{l}</button>
+            ))}
+          </div>
+
+          {mouvements.length === 0 ? (
+            <EmptyState icon={Wallet} text="Aucun mouvement pour le moment." />
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+              {mouvements.map(m => {
+                if (m.type === "recette") {
+                  return (
+                    <div key={m.id} style={{ background: "#fff", border: "1px solid var(--border)", borderLeft: "4px solid #1F7A5C", borderRadius: 11, padding: "9px 12px", display: "flex", justifyContent: "space-between", gap: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 12.5, fontWeight: 700 }}>Recette de la semaine{coord ? ` — ${m.assemblee}` : ""}</div>
+                        <div style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{weekLabel(m.semaine)}</div>
+                      </div>
+                      <div style={{ fontWeight: 700, color: "#1F7A5C", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>+ {fcfa(m.montant)}</div>
+                    </div>
+                  );
+                }
+                const st = EXPENSE_STATUTS[m.statut === "reel" ? "reel" : "previsionnel"];
+                return (
+                  <div key={m.id} onClick={() => !m.auto && setEditing(m)} style={{
+                    background: "#fff", border: "1px solid var(--border)", borderLeft: `4px solid ${st.tone}`, borderRadius: 11,
+                    padding: "9px 12px", cursor: m.auto ? "default" : "pointer"
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 700 }}>{m.libelle || m.categorie}</div>
+                        <div style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>
+                          {m.date ? formatDateLong(m.date) : "Date à définir"} · {m.categorie}{m.beneficiaire ? ` · ${m.beneficiaire}` : ""}
+                        </div>
+                      </div>
+                      <div style={{ fontWeight: 700, color: st.tone, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>− {fcfa(m.montant)}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: st.tone, background: st.bg, borderRadius: 99, padding: "2px 8px" }}>{st.label}</span>
+                      {m.auto && (
+                        <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--primary)", background: "#E6E9F2", borderRadius: 99, padding: "2px 8px" }}>
+                          Automatique · depuis {m.id.startsWith("auto-sem") ? "le séminaire" : "le rapport"}
+                        </span>
+                      )}
+                      {m.auto && m.statut === "reel" && m.budgetPrevu > 0 && (
+                        <span style={{ fontSize: 10.5, color: m.montant > m.budgetPrevu ? "var(--danger)" : "var(--ink-soft)", fontWeight: 600 }}>
+                          Budget prévu : {fcfa(m.budgetPrevu)}{m.montant > m.budgetPrevu ? " — dépassé" : ""}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <div style={{ fontSize: 11, color: "var(--ink-soft)", marginTop: 12, lineHeight: 1.45 }}>
+            Les dépenses des séminaires arrivent toutes seules : le budget du séminaire est compté comme dépense prévue, puis remplacé par les dépenses réelles dès que le rapport du séminaire est déposé.
+          </div>
+        </>
+      )}
+
+      {editing && c && (
+        <ExpenseForm entry={editing} caisse={c} onSave={handleSave} onDelete={handleDelete} onClose={() => setEditing(null)} />
+      )}
+    </div>
+  );
+}
+
+function ExpenseForm({ entry, caisse, onSave, onDelete, onClose }) {
+  const isNew = !entry.id;
+  const [e, setE] = useState({
+    statut: entry.statut || "reel", date: entry.date || "", categorie: entry.categorie || "Divers",
+    libelle: entry.libelle || "", montant: numInput(entry.montant), beneficiaire: entry.beneficiaire || "", observations: entry.observations || "",
+  });
+  const [confirmDepassement, setConfirmDepassement] = useState(false);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const set = (k, v) => { setE(prev => ({ ...prev, [k]: v })); setConfirmDepassement(false); setError(""); };
+
+  // Disponible sans compter cette dépense (si on la modifie).
+  const ancien = isNew ? 0 : (Number(entry.montant) || 0);
+  const disponibleAvant = caisse.disponible + ancien;
+  const montant = Number(e.montant) || 0;
+  const apres = disponibleAvant - montant;
+  const depasse = montant > 0 && apres < 0;
+
+  async function handleSubmit() {
+    if (!e.libelle.trim()) { setError("Indiquez l'objet de la dépense."); return; }
+    if (montant <= 0) { setError("Indiquez le montant de la dépense."); return; }
+    if (depasse && !confirmDepassement) { setConfirmDepassement(true); return; }
+    setSaving(true);
+    await onSave({
+      id: entry.id || uid(), niveau: entry.niveau, assemblee: entry.assemblee || "",
+      statut: e.statut, date: e.date, categorie: e.categorie, libelle: e.libelle.trim(), montant,
+      beneficiaire: e.beneficiaire.trim(), observations: e.observations.trim(),
+      creeLe: entry.creeLe || new Date().toISOString(), modifieLe: new Date().toISOString(),
+    });
+    setSaving(false);
+  }
+
+  return (
+    <ModalShell title={isNew ? "Nouvelle dépense" : "Modifier la dépense"} onClose={onClose}>
+      <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 12 }}>
+        {entry.niveau === "coordination" ? "Caisse de la coordination nationale" : `Caisse de ${entry.assemblee}`}
+      </div>
+
+      <Field label="Type de dépense">
+        <div style={{ display: "flex", gap: 6 }}>
+          {[["previsionnel", "Prévue (à réserver)"], ["reel", "Effectuée (payée)"]].map(([k, l]) => (
+            <button key={k} onClick={() => set("statut", k)} style={{
+              flex: 1, padding: "9px 0", borderRadius: 9, fontSize: 12.5, fontWeight: 700,
+              border: `1.5px solid ${e.statut === k ? EXPENSE_STATUTS[k].tone : "var(--border)"}`,
+              background: e.statut === k ? EXPENSE_STATUTS[k].bg : "#fff", color: e.statut === k ? EXPENSE_STATUTS[k].tone : "var(--ink-soft)"
+            }}>{l}</button>
+          ))}
+        </div>
+      </Field>
+      <Field label="Objet de la dépense">
+        <input style={inputStyle} value={e.libelle} onChange={ev => set("libelle", ev.target.value)} placeholder="Ex. Acompte pour le lieu de culte" />
+      </Field>
+      <Field label="Catégorie">
+        <select style={inputStyle} value={e.categorie} onChange={ev => set("categorie", ev.target.value)}>
+          {EXPENSE_CATS.map(cat => <option key={cat}>{cat}</option>)}
+        </select>
+      </Field>
+      <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ flex: 1 }}>
+          <Field label="Montant (FCFA)">
+            <input type="number" inputMode="numeric" min="0" style={inputStyle} value={e.montant} onChange={ev => set("montant", ev.target.value)} placeholder="0" />
+          </Field>
+        </div>
+        <div style={{ flex: 1 }}>
+          <Field label={e.statut === "reel" ? "Date du paiement" : "Date prévue"}>
+            <input type="date" style={inputStyle} value={e.date} onChange={ev => set("date", ev.target.value)} />
+          </Field>
+        </div>
+      </div>
+      <Field label="Payé à / bénéficiaire (facultatif)">
+        <input style={inputStyle} value={e.beneficiaire} onChange={ev => set("beneficiaire", ev.target.value)} />
+      </Field>
+      <Field label="Observations (facultatif)">
+        <textarea style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} value={e.observations} onChange={ev => set("observations", ev.target.value)} />
+      </Field>
+
+      <div style={{
+        borderRadius: 10, padding: "9px 11px", marginBottom: 12, fontSize: 12.5, lineHeight: 1.45,
+        background: depasse ? "#F5E4E4" : "#F4F5EE", color: depasse ? "var(--danger)" : "var(--ink)"
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between" }}><span>Disponible avant cette dépense</span><b>{fcfa(disponibleAvant)}</b></div>
+        <div style={{ display: "flex", justifyContent: "space-between" }}><span>Disponible après</span><b>{fcfa(apres)}</b></div>
+        {depasse && <div style={{ fontWeight: 700, marginTop: 5 }}>Cette dépense dépasse le reste disponible de {fcfa(-apres)}. La caisse passera en rouge.</div>}
+      </div>
+
+      {error && <div style={{ fontSize: 12.5, color: "var(--danger)", fontWeight: 600, marginBottom: 10 }}>{error}</div>}
+      {confirmDepassement && (
+        <div style={{ background: "var(--danger)", color: "#fff", fontSize: 12.5, fontWeight: 600, borderRadius: 9, padding: "9px 11px", marginBottom: 10 }}>
+          Confirmez-vous ce dépassement ? Appuyez encore pour l'enregistrer quand même.
+        </div>
+      )}
+      <PrimaryButton onClick={saving ? undefined : handleSubmit} icon={Check} full>
+        {saving ? "Enregistrement…" : confirmDepassement ? "Enregistrer malgré le dépassement" : isNew ? "Enregistrer la dépense" : "Enregistrer les modifications"}
+      </PrimaryButton>
+      {!isNew && entry.statut !== "reel" && e.statut !== "reel" && (
+        <button onClick={() => set("statut", "reel")} style={{
+          width: "100%", marginTop: 10, color: "var(--primary)", fontSize: 13, fontWeight: 700, padding: 8,
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 5
+        }}>
+          <CheckCircle2 size={14} /> Marquer comme effectuée
+        </button>
+      )}
+      {!isNew && (
+        <button onClick={() => { if (confirm("Supprimer cette dépense ?")) onDelete(entry); }} style={{
+          width: "100%", marginTop: 6, color: "var(--danger)", fontSize: 13, fontWeight: 600,
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: 8
+        }}>
+          <Trash2 size={14} /> Supprimer cette dépense
+        </button>
+      )}
+    </ModalShell>
+  );
+}
+
+function CaissesOverview({ regions, financeReports, allExpenses }) {
+  const coord = computeCaisse("coordination", "", financeReports, allExpenses);
+  const rows = flattenAssemblees(regions)
+    .map(a => ({ nom: a, c: computeCaisse("assemblee", a, financeReports, allExpenses) }))
+    .filter(x => x.c.recettes || x.c.reel || x.c.prevu)
+    .sort((a, b) => a.c.disponible - b.c.disponible);
+  const enRouge = rows.filter(x => x.c.solde < 0 || x.c.disponible < 0);
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--ink)", margin: "4px 0 10px" }}>Caisses (depuis le début)</div>
+      <CaisseCard titre="Coordination nationale" c={coord} />
+      {enRouge.length > 0 && (
+        <div style={{ background: "#F5E4E4", color: "var(--danger)", borderRadius: 10, padding: "9px 11px", fontSize: 12.5, fontWeight: 700, marginBottom: 10 }}>
+          {enRouge.length} caisse{enRouge.length > 1 ? "s" : ""} en rouge ou en dépassement : {enRouge.map(x => x.nom).join(", ")}
+        </div>
+      )}
+      {rows.length > 0 && (
+        <div style={{ overflowX: "auto", background: "#fff", border: "1px solid var(--border)", borderRadius: 11, padding: "4px 8px" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5, fontVariantNumeric: "tabular-nums" }}>
+            <thead>
+              <tr style={{ color: "var(--ink-soft)", fontSize: 10.5, textTransform: "uppercase" }}>
+                {["Assemblée", "Solde", "Prévu", "Disponible"].map((h, i) => (
+                  <th key={h} style={{ padding: "6px 5px", textAlign: i ? "right" : "left", borderBottom: "1px solid var(--border)" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ nom, c }) => (
+                <tr key={nom} style={{ background: c.solde < 0 ? "#F5E4E4" : "transparent" }}>
+                  <td style={{ padding: "6px 5px", fontWeight: 700, borderBottom: "1px solid var(--border)" }}>{nom}</td>
+                  <td style={{ padding: "6px 5px", textAlign: "right", borderBottom: "1px solid var(--border)", color: c.solde < 0 ? "var(--danger)" : "var(--ink)", fontWeight: c.solde < 0 ? 700 : 400 }}>{fcfa(c.solde)}</td>
+                  <td style={{ padding: "6px 5px", textAlign: "right", borderBottom: "1px solid var(--border)", color: "var(--accent-dark)" }}>{fcfa(c.prevu)}</td>
+                  <td style={{ padding: "6px 5px", textAlign: "right", borderBottom: "1px solid var(--border)", fontWeight: 700, color: c.disponible < 0 ? "var(--danger)" : "#1F7A5C" }}>{fcfa(c.disponible)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
