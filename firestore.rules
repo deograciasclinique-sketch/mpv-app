@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // L'app n'utilise qu'une seule collection : "mpv-data".
+    // Ces règles autorisent tout le monde à lire et écrire cette collection
+    // (aucune authentification n'est demandée aux pasteurs), ce qui correspond
+    // à un usage interne simple. Voir le README.md pour restreindre l'accès
+    // plus tard avec Firebase Authentication si nécessaire.
+    match /mpv-data/{document=**} {
+      allow read, write: if true;
+    }
+
+    // Tout le reste est bloqué par défaut.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
