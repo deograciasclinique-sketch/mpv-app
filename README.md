@@ -27,9 +27,17 @@ L'app affiche aussi le reste de chaque niveau après la part Convention.
 - **Solde en caisse** = recettes − dépenses effectuées (en rouge si négatif).
 - **Reste disponible à ne pas dépasser** = solde − dépenses prévues. L'app avertit avant toute dépense qui le dépasse.
 
+## Plans d'action des départements
+Onglet **Coord. → Plans départements**. Chaque chef de département (Missions et Formations, Communication, Finance, Patrimoine, Socioculturel et Famille, Autres) choisit son département et son année, puis remplit :
+- **Année** : les grandes activités, rangées par trimestre ;
+- **Trimestre** : les actions datées, reliées à une activité de l'année ;
+- **Mois** : les tâches concrètes, avec participants et dépense réelle (l'écart de budget se calcule seul) ;
+- **Bilan** : résultats, difficultés, solutions et décisions, par mois, trimestre ou année ;
+- **Tableau** : vue d'ensemble de tous les départements (taux de réalisation, budgets, dépenses).
+
 ## Données
 Toutes les données sont dans Firestore, collection `mpv-data` (voir `firestore.rules`).
-Les nouveaux documents sont `finance-reports`, `activity-reports` et `expense-reports`.
+Les nouveaux documents sont `finance-reports`, `activity-reports`, `expense-reports`, `dept-plans` et `dept-bilans`.
 
 ## Commandes
 - `npm install` puis `npm run dev` pour lancer en local

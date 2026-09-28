@@ -845,6 +845,8 @@ export default function App() {
   const [financeReports, setFinanceReports] = useState([]);
   const [activityReports, setActivityReports] = useState([]);
   const [expenseReports, setExpenseReports] = useState([]);
+  const [deptPlans, setDeptPlans] = useState([]);
+  const [deptBilans, setDeptBilans] = useState([]);
   const [coordUnlocked, setCoordUnlocked] = useState(false);
   const [coordNatUnlocked, setCoordNatUnlocked] = useState(false);
   const [toast, setToast] = useState(null);
@@ -875,7 +877,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [r, p, s, l, wp, sr, cs, dh, ap, br, mi, pa, ph, fr, ar, er] = await Promise.all([
+      const [r, p, s, l, wp, sr, cs, dh, ap, br, mi, pa, ph, fr, ar, er, dpl, dbi] = await Promise.all([
         loadKey("regions-assemblies", REGIONS_DEFAULT),
         loadKey("pastors-directory", PASTORS_DEFAULT),
         loadKey("seminars-list", []),
@@ -892,6 +894,8 @@ export default function App() {
         loadKey("finance-reports", []),
         loadKey("activity-reports", []),
         loadKey("expense-reports", []),
+        loadKey("dept-plans", []),
+        loadKey("dept-bilans", []),
       ]);
       const pWithPhotos = p.map(x => ({ ...x, photo: (ph && ph[x.id]) || x.photo || null }));
       setRegions(r); setPastors(pWithPhotos); setPastorsPhotos(ph || {}); setSeminars(s); setLeadership(l);
@@ -899,6 +903,7 @@ export default function App() {
       setCoordSeminars(cs); setDeptHeads(dh); setActionPlans(ap);
       setBibleReports(br); setMissionaries(mi); setPlansAnnuels(pa);
       setFinanceReports(fr); setActivityReports(ar); setExpenseReports(er);
+      setDeptPlans(dpl); setDeptBilans(dbi);
       setLoading(false);
     })();
   }, []);
@@ -959,6 +964,10 @@ export default function App() {
   const deleteActivity = (entry) => upsertShared("activity-reports", setActivityReports, entry, true);
   const saveExpense = (entry) => upsertShared("expense-reports", setExpenseReports, entry, false);
   const deleteExpense = (entry) => upsertShared("expense-reports", setExpenseReports, entry, true);
+  const saveDeptPlan = (entry) => upsertShared("dept-plans", setDeptPlans, entry, false);
+  const deleteDeptPlan = (entry) => upsertShared("dept-plans", setDeptPlans, entry, true);
+  const saveDeptBilan = (entry) => upsertShared("dept-bilans", setDeptBilans, entry, false);
+  const deleteDeptBilan = (entry) => upsertShared("dept-bilans", setDeptBilans, entry, true);
 
   const upcomingCount = useMemo(
     () => seminars.filter(s => { const d = daysUntil(s.date); return d !== null && d >= 0 && d <= 7; }).length,
@@ -1041,6 +1050,8 @@ export default function App() {
             deptHeads={deptHeads} setDeptHeads={persistDeptHeads}
             actionPlans={actionPlans} setActionPlans={persistActionPlans}
             plansAnnuels={plansAnnuels} setPlansAnnuels={persistPlansAnnuels}
+            deptPlans={deptPlans} saveDeptPlan={saveDeptPlan} deleteDeptPlan={deleteDeptPlan}
+            deptBilans={deptBilans} saveDeptBilan={saveDeptBilan} deleteDeptBilan={deleteDeptBilan}
             leadership={leadership} pastors={pastors}
             unlocked={coordUnlocked} onUnlock={unlockCoord} onLock={lockCoord}
             natUnlocked={coordNatUnlocked} onUnlockNat={unlockCoordNat} onLockNat={lockCoordNat}
@@ -5625,8 +5636,8 @@ function CoordLockPanel({ leadership, unlocked, onUnlock, onLock, pinField = "pi
   );
 }
 
-function Coordination({ coordSeminars, setCoordSeminars, seminars, setSeminars, deptHeads, setDeptHeads, actionPlans, setActionPlans, plansAnnuels, setPlansAnnuels, leadership, pastors, unlocked, onUnlock, onLock, natUnlocked, onUnlockNat, onLockNat, showToast }) {
-  const [subTab, setSubTab] = useState("responsables");
+function Coordination({ coordSeminars, setCoordSeminars, seminars, setSeminars, deptHeads, setDeptHeads, actionPlans, setActionPlans, plansAnnuels, setPlansAnnuels, deptPlans, saveDeptPlan, deleteDeptPlan, deptBilans, saveDeptBilan, deleteDeptBilan, leadership, pastors, unlocked, onUnlock, onLock, natUnlocked, onUnlockNat, onLockNat, showToast }) {
+  const [subTab, setSubTab] = useState("plansdept");
 
   return (
     <div>
@@ -5639,10 +5650,19 @@ function Coordination({ coordSeminars, setCoordSeminars, seminars, setSeminars, 
       <CoordLockPanel leadership={leadership} unlocked={unlocked} onUnlock={onUnlock} onLock={onLock} />
 
       <div style={{ display: "flex", gap: 6, marginBottom: 16, background: "#fff", padding: 4, borderRadius: 11, border: "1px solid var(--border)", flexWrap: "wrap" }}>
+        <button onClick={() => setSubTab("plansdept")} style={segButtonStyle(subTab === "plansdept")}>Plans départements</button>
         <button onClick={() => setSubTab("responsables")} style={segButtonStyle(subTab === "responsables")}>Responsables</button>
         <button onClick={() => setSubTab("validation")} style={segButtonStyle(subTab === "validation")}>Validation</button>
-        <button onClick={() => setSubTab("plans")} style={segButtonStyle(subTab === "plans")}>Plan d'action</button>
+        <button onClick={() => setSubTab("plans")} style={segButtonStyle(subTab === "plans")}>Plan national</button>
       </div>
+
+      {subTab === "plansdept" && (
+        <PlansDepartements
+          deptPlans={deptPlans} saveDeptPlan={saveDeptPlan} deleteDeptPlan={deleteDeptPlan}
+          deptBilans={deptBilans} saveDeptBilan={saveDeptBilan} deleteDeptBilan={deleteDeptBilan}
+          showToast={showToast}
+        />
+      )}
 
       {subTab === "responsables" && (
         <DeptHeads deptHeads={deptHeads} setDeptHeads={setDeptHeads} coordSeminars={coordSeminars} unlocked={unlocked} showToast={showToast} />
@@ -6307,6 +6327,590 @@ function DeptHeadForm({ head, onSave, onDelete, onClose }) {
 }
 
 /* --- Plan d'action annuel / mensuel / hebdomadaire ------------------ */
+
+/* ------------------------------------------------------------------ */
+/*  PLANS D'ACTION DES DÉPARTEMENTS (annuel / trimestriel / mensuel)    */
+/* ------------------------------------------------------------------ */
+
+const DEPARTEMENTS_COORD = ["Missions et Formations", "Communication", "Finance", "Patrimoine", "Socioculturel et Famille", "Autres"];
+const DP_AXES = [
+  "Évangélisation & mission", "Formation des prédicateurs", "Séminaires & conventions", "Implantation de cellules",
+  "Prière & intercession", "Communication & médias", "Finances & collecte", "Patrimoine (terrains, lieux de culte, matériel)",
+  "Social & famille", "Jeunesse", "Femmes", "Hommes", "Enfants (plus jeunes)", "Culture & loisirs", "Administration",
+];
+const DP_SOURCES = ["Caisse coordination", "Caisse assemblée", "Dons volontaires", "Part Convention", "Contribution des participants", "Partenaires", "Autre"];
+const DP_STATUTS = [
+  { value: "prevue", label: "Prévue", tone: "var(--ink-soft)", bg: "#EEEEE8" },
+  { value: "encours", label: "En cours", tone: "var(--primary)", bg: "#E6E9F2" },
+  { value: "realisee", label: "Réalisée", tone: "#1F7A5C", bg: "#E3F1EA" },
+  { value: "reportee", label: "Reportée", tone: "var(--accent-dark)", bg: "var(--accent-soft)" },
+  { value: "annulee", label: "Annulée", tone: "var(--danger)", bg: "#F5E4E4" },
+];
+const TRIMESTRES = [
+  { n: 1, label: "T1", mois: "janv. – mars" },
+  { n: 2, label: "T2", mois: "avr. – juin" },
+  { n: 3, label: "T3", mois: "juil. – sept." },
+  { n: 4, label: "T4", mois: "oct. – déc." },
+];
+const NIVEAUX_PLAN = { annuel: "de l'année", trimestriel: "du trimestre", mensuel: "du mois" };
+
+function dpStatut(v) { return DP_STATUTS.find(s => s.value === v) || DP_STATUTS[0]; }
+function trimestreOfMonth(m) { return Math.floor(m / 3) + 1; }
+
+function StatutChip({ value }) {
+  const s = dpStatut(value);
+  return <span style={{ fontSize: 10.5, fontWeight: 700, color: s.tone, background: s.bg, borderRadius: 99, padding: "2px 8px", whiteSpace: "nowrap" }}>{s.label}</span>;
+}
+
+function ChipPicker({ options, value, onChange, small }) {
+  return (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+      {options.map(o => {
+        const v = typeof o === "object" ? o.value : o;
+        const l = typeof o === "object" ? o.label : o;
+        const active = value === v;
+        return (
+          <button key={v} onClick={() => onChange(v)} style={{
+            padding: small ? "5px 10px" : "7px 12px", borderRadius: 99, fontSize: small ? 11.5 : 12.5, fontWeight: 700,
+            border: `1.5px solid ${active ? "var(--primary)" : "var(--border)"}`,
+            background: active ? "var(--primary)" : "#fff", color: active ? "#fff" : "var(--ink-soft)"
+          }}>{l}</button>
+        );
+      })}
+    </div>
+  );
+}
+
+function dpStats(items) {
+  const actifs = items.filter(i => i.statut !== "annulee");
+  const realisees = items.filter(i => i.statut === "realisee").length;
+  const budget = items.reduce((s, i) => s + (Number(i.budget) || 0), 0);
+  const depense = items.reduce((s, i) => s + (Number(i.depenseReelle) || 0), 0);
+  return { total: items.length, actifs: actifs.length, realisees, taux: actifs.length ? Math.round(realisees / actifs.length * 100) : null, budget, depense };
+}
+
+function planToText(dept, titre, items) {
+  const L = [`🎯 *Plan d'action ${titre}*`, `Département : ${dept}`, ""];
+  items.forEach((i, k) => {
+    L.push(`${k + 1}. ${i.activite}${i.date ? ` (${formatDateLong(i.date)})` : ""} — ${dpStatut(i.statut).label}`);
+    if (i.objectif) L.push(`   Objectif : ${i.objectif}`);
+    if (i.responsable) L.push(`   Responsable : ${i.responsable}`);
+    if (Number(i.budget) > 0) L.push(`   Budget : ${fcfa(i.budget)}`);
+  });
+  const st = dpStats(items);
+  L.push("", `Total : ${st.total} activité(s) · ${st.realisees} réalisée(s) · budget ${fcfa(st.budget)}`, "", "Mission Parole de Vie Burkina");
+  return L.join("\n");
+}
+
+function PlansDepartements({ deptPlans, saveDeptPlan, deleteDeptPlan, deptBilans, saveDeptBilan, deleteDeptBilan, showToast }) {
+  const now = new Date();
+  const [dept, setDept] = useState(() => { try { return localStorage.getItem("mpv-dp-dept") || ""; } catch (e) { return ""; } });
+  const [annee, setAnnee] = useState(now.getFullYear());
+  const [vue, setVue] = useState("annee");
+  const [trim, setTrim] = useState(trimestreOfMonth(now.getMonth()));
+  const [mois, setMois] = useState(now.getMonth());
+  const [editing, setEditing] = useState(null);
+  const [editingBilan, setEditingBilan] = useState(null);
+
+  function chooseDept(d) { setDept(d); try { localStorage.setItem("mpv-dp-dept", d); } catch (e) {} }
+
+  const duDept = deptPlans.filter(p => p.departement === dept && Number(p.annee) === Number(annee));
+  const annuels = duDept.filter(p => p.niveau === "annuel");
+  const trimestriels = duDept.filter(p => p.niveau === "trimestriel");
+  const mensuels = duDept.filter(p => p.niveau === "mensuel");
+
+  async function handleSave(item) {
+    const ok = await saveDeptPlan(item);
+    if (ok) { setEditing(null); showToast("Activité enregistrée"); }
+  }
+  async function handleDelete(item) {
+    const ok = await deleteDeptPlan(item);
+    if (ok) { setEditing(null); showToast("Activité supprimée"); }
+  }
+  async function quickStatut(item, statut) {
+    const ok = await saveDeptPlan({ ...item, statut, modifieLe: new Date().toISOString() });
+    if (ok) showToast(`Marquée « ${dpStatut(statut).label} »`);
+  }
+  function nouveau(niveau, extra = {}) {
+    setEditing({ niveau, departement: dept, annee, statut: "prevue", ...extra });
+  }
+
+  const annees = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1, now.getFullYear() + 2];
+
+  return (
+    <div>
+      <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 12, lineHeight: 1.45 }}>
+        Chaque chef de département remplit ici son plan d'action : l'année, puis chaque trimestre, puis chaque mois, et fait le bilan.
+      </div>
+
+      <Field label="Mon département">
+        <ChipPicker options={DEPARTEMENTS_COORD} value={dept} onChange={chooseDept} small />
+      </Field>
+      <Field label="Année">
+        <ChipPicker options={annees.map(a => ({ value: a, label: String(a) }))} value={annee} onChange={setAnnee} small />
+      </Field>
+
+      <div style={{ display: "flex", gap: 4, marginBottom: 14, background: "#fff", padding: 4, borderRadius: 11, border: "1px solid var(--border)", overflowX: "auto" }}>
+        {[["annee", "Année"], ["trimestre", "Trimestre"], ["mois", "Mois"], ["bilan", "Bilan"], ["tableau", "Tableau"]].map(([k, l]) => (
+          <button key={k} onClick={() => setVue(k)} style={{ ...segButtonStyle(vue === k), flex: "1 0 auto", padding: "8px 9px" }}>{l}</button>
+        ))}
+      </div>
+
+      {vue === "tableau" ? (
+        <PlansTableau deptPlans={deptPlans} annee={annee} />
+      ) : !dept ? (
+        <EmptyState icon={Target} text="Choisissez d'abord votre département ci-dessus." />
+      ) : vue === "annee" ? (
+        <PlanListe
+          titre={`de l'année ${annee}`} dept={dept} items={annuels}
+          groupBy={i => i.trimestre ? `${TRIMESTRES[i.trimestre - 1].label} · ${TRIMESTRES[i.trimestre - 1].mois}` : "Trimestre non précisé"}
+          onAdd={() => nouveau("annuel", { trimestre: trim })} addLabel="Ajouter une activité de l'année"
+          onOpen={setEditing} onQuick={quickStatut}
+          vide="Aucune activité prévue pour cette année. Commencez par les grandes activités du département."
+        />
+      ) : vue === "trimestre" ? (
+        <>
+          <Field label="Trimestre">
+            <ChipPicker options={TRIMESTRES.map(t => ({ value: t.n, label: `${t.label} · ${t.mois}` }))} value={trim} onChange={setTrim} small />
+          </Field>
+          {annuels.filter(a => Number(a.trimestre) === trim).length > 0 && (
+            <div style={{ background: "var(--accent-soft)", borderRadius: 10, padding: "9px 11px", marginBottom: 12, fontSize: 12, color: "var(--accent-dark)", lineHeight: 1.45 }}>
+              <b>Prévu dans le plan de l'année pour ce trimestre :</b> {annuels.filter(a => Number(a.trimestre) === trim).map(a => a.activite).join(" · ")}
+            </div>
+          )}
+          <PlanListe
+            titre={`du ${TRIMESTRES[trim - 1].label} ${annee}`} dept={dept}
+            items={trimestriels.filter(p => Number(p.trimestre) === trim)}
+            onAdd={() => nouveau("trimestriel", { trimestre: trim })} addLabel="Ajouter une action du trimestre"
+            onOpen={setEditing} onQuick={quickStatut}
+            vide="Aucune action pour ce trimestre. Découpez les activités de l'année en actions datées."
+          />
+        </>
+      ) : vue === "mois" ? (
+        <>
+          <Field label="Mois">
+            <select style={inputStyle} value={mois} onChange={e => setMois(Number(e.target.value))}>
+              {MOIS_ANNEE.map((m, i) => <option key={m} value={i}>{m} {annee}</option>)}
+            </select>
+          </Field>
+          <PlanListe
+            titre={`de ${MOIS_ANNEE[mois].toLowerCase()} ${annee}`} dept={dept} mensuel
+            items={mensuels.filter(p => Number(p.mois) === mois)}
+            onAdd={() => nouveau("mensuel", { mois, trimestre: trimestreOfMonth(mois) })} addLabel="Ajouter une tâche du mois"
+            onOpen={setEditing} onQuick={quickStatut}
+            vide="Aucune tâche pour ce mois. Ajoutez les tâches concrètes à faire."
+          />
+        </>
+      ) : (
+        <BilansListe
+          dept={dept} annee={annee} bilans={deptBilans.filter(b => b.departement === dept && Number(b.annee) === Number(annee))}
+          onAdd={() => setEditingBilan({ departement: dept, annee, typePeriode: "Mois", mois, trimestre: trim })}
+          onOpen={setEditingBilan}
+          statsFor={b => dpStats(b.typePeriode === "Mois" ? mensuels.filter(p => Number(p.mois) === Number(b.mois))
+            : b.typePeriode === "Trimestre" ? trimestriels.filter(p => Number(p.trimestre) === Number(b.trimestre)) : annuels)}
+        />
+      )}
+
+      {editing && (
+        <PlanItemForm
+          entry={editing} parents={editing.niveau === "trimestriel" ? annuels : editing.niveau === "mensuel" ? trimestriels : []}
+          onSave={handleSave} onDelete={handleDelete} onClose={() => setEditing(null)}
+        />
+      )}
+      {editingBilan && (
+        <BilanForm
+          entry={editingBilan}
+          onSave={async b => { const ok = await saveDeptBilan(b); if (ok) { setEditingBilan(null); showToast("Bilan enregistré"); } }}
+          onDelete={async b => { const ok = await deleteDeptBilan(b); if (ok) { setEditingBilan(null); showToast("Bilan supprimé"); } }}
+          onClose={() => setEditingBilan(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function PlanListe({ titre, dept, items, groupBy, onAdd, addLabel, onOpen, onQuick, vide, mensuel }) {
+  const sorted = [...items].sort((a, b) => (Number(a.trimestre) || 9) - (Number(b.trimestre) || 9) || (a.date || "").localeCompare(b.date || ""));
+  const st = dpStats(items);
+  const groups = [];
+  sorted.forEach(i => {
+    const g = groupBy ? groupBy(i) : "";
+    const last = groups[groups.length - 1];
+    if (last && last.g === g) last.items.push(i); else groups.push({ g, items: [i] });
+  });
+
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 12 }}>
+        {[["Activités", st.total], ["Réalisées", st.taux === null ? "—" : `${st.realisees} · ${st.taux} %`], [mensuel ? "Dépensé / prévu" : "Budget prévu", mensuel ? `${fcfa(st.depense)} / ${fcfa(st.budget)}` : fcfa(st.budget)]].map(([l, v]) => (
+          <div key={l} style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 9px" }}>
+            <div style={{ fontSize: 10, textTransform: "uppercase", fontWeight: 700, color: "var(--ink-soft)" }}>{l}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: mensuel && l.startsWith("Dépensé") && st.depense > st.budget && st.budget > 0 ? "var(--danger)" : "var(--ink)", fontVariantNumeric: "tabular-nums" }}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+        <div style={{ flex: 1 }}><PrimaryButton full icon={Plus} onClick={onAdd}>{addLabel}</PrimaryButton></div>
+        {items.length > 0 && (
+          <a href={shareWhatsappLink(planToText(dept, titre, sorted))} target="_blank" rel="noopener noreferrer" aria-label="Partager par WhatsApp" style={{
+            background: "#25D366", color: "#fff", borderRadius: 10, padding: "0 14px", display: "flex", alignItems: "center"
+          }}><Send size={16} /></a>
+        )}
+      </div>
+
+      {items.length === 0 ? <EmptyState icon={Target} text={vide} /> : groups.map(gr => (
+        <div key={gr.g || "all"} style={{ marginBottom: 12 }}>
+          {gr.g && <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--accent-dark)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 6 }}>{gr.g}</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {gr.items.map(i => {
+              const s = dpStatut(i.statut);
+              const depasse = mensuel && Number(i.depenseReelle) > Number(i.budget) && Number(i.budget) > 0;
+              return (
+                <div key={i.id} style={{ background: "#fff", border: "1px solid var(--border)", borderLeft: `4px solid ${s.tone}`, borderRadius: 12, padding: "11px 12px" }}>
+                  <div onClick={() => onOpen(i)} style={{ cursor: "pointer" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--ink)" }}>{i.activite}</div>
+                      <StatutChip value={i.statut} />
+                    </div>
+                    {i.objectif && <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 3 }}>{i.objectif}</div>}
+                    <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 5, display: "flex", flexWrap: "wrap", gap: "2px 10px" }}>
+                      {i.date && <span>📅 {formatDateLong(i.date)}</span>}
+                      {i.lieu && <span>📍 {i.lieu}</span>}
+                      {i.responsable && <span>👤 {i.responsable}</span>}
+                      {Number(i.budget) > 0 && <span>💰 {fcfa(i.budget)}{mensuel && Number(i.depenseReelle) > 0 ? ` · dépensé ${fcfa(i.depenseReelle)}` : ""}</span>}
+                    </div>
+                    {depasse && <div style={{ fontSize: 11.5, color: "var(--danger)", fontWeight: 700, marginTop: 4 }}>Budget dépassé de {fcfa(Number(i.depenseReelle) - Number(i.budget))}</div>}
+                  </div>
+                  {i.statut !== "realisee" && i.statut !== "annulee" && (
+                    <div style={{ display: "flex", gap: 6, marginTop: 9 }}>
+                      {i.statut === "prevue" && (
+                        <button onClick={() => onQuick(i, "encours")} style={{ fontSize: 11.5, fontWeight: 700, color: "var(--primary)", border: "1px solid var(--border)", borderRadius: 8, padding: "5px 9px" }}>Démarrer</button>
+                      )}
+                      <button onClick={() => mensuel ? onOpen({ ...i, statut: "realisee" }) : onQuick(i, "realisee")} style={{ fontSize: 11.5, fontWeight: 700, color: "#1F7A5C", border: "1px solid var(--border)", borderRadius: 8, padding: "5px 9px", display: "flex", alignItems: "center", gap: 4 }}>
+                        <Check size={12} /> {mensuel ? "Réalisée (saisir le bilan)" : "Marquer réalisée"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PlanItemForm({ entry, parents, onSave, onDelete, onClose }) {
+  const isNew = !entry.id;
+  const niveau = entry.niveau;
+  const [f, setF] = useState({
+    activite: entry.activite || "", objectif: entry.objectif || "", axe: entry.axe || "", indicateur: entry.indicateur || "",
+    cible: numInput(entry.cible), trimestre: entry.trimestre || 1, date: entry.date || "", lieu: entry.lieu || "",
+    responsable: entry.responsable || "", budget: numInput(entry.budget), source: entry.source || "",
+    statut: entry.statut || "prevue", parentId: entry.parentId || "", ressources: entry.ressources || "",
+    participantsAttendus: numInput(entry.participantsAttendus), participantsReels: numInput(entry.participantsReels),
+    depenseReelle: numInput(entry.depenseReelle), observations: entry.observations || "",
+  });
+  const [plus, setPlus] = useState(!isNew);
+  const [error, setError] = useState("");
+  const set = (k, v) => { setF(p => ({ ...p, [k]: v })); setError(""); };
+
+  const parentsUtiles = parents.filter(p => niveau !== "trimestriel" || !p.trimestre || Number(p.trimestre) === Number(f.trimestre));
+  function chooseParent(id) {
+    const p = parents.find(x => x.id === id);
+    setF(prev => ({ ...prev, parentId: id, objectif: prev.objectif || p?.objectif || "", axe: prev.axe || p?.axe || "", activite: prev.activite || p?.activite || "" }));
+  }
+  const ecart = (Number(f.budget) || 0) - (Number(f.depenseReelle) || 0);
+
+  function handleSubmit() {
+    if (!f.activite.trim()) { setError("Indiquez l'activité."); return; }
+    const num = v => v === "" ? "" : Number(v) || 0;
+    onSave({
+      ...entry, id: entry.id || uid(), ...f,
+      activite: f.activite.trim(), objectif: f.objectif.trim(), indicateur: f.indicateur.trim(), lieu: f.lieu.trim(),
+      responsable: f.responsable.trim(), observations: f.observations.trim(), ressources: f.ressources.trim(),
+      cible: num(f.cible), budget: num(f.budget), participantsAttendus: num(f.participantsAttendus),
+      participantsReels: num(f.participantsReels), depenseReelle: num(f.depenseReelle),
+      trimestre: niveau === "mensuel" ? trimestreOfMonth(Number(entry.mois)) : Number(f.trimestre),
+      creeLe: entry.creeLe || new Date().toISOString(), modifieLe: new Date().toISOString(),
+    });
+  }
+
+  const txt = (k, label, ph) => <Field label={label}><input style={inputStyle} value={f[k]} onChange={e => set(k, e.target.value)} placeholder={ph} /></Field>;
+  const num = (k, label, money) => (
+    <Field label={label}><input type="number" inputMode="numeric" min="0" style={inputStyle} value={f[k]} onChange={e => set(k, e.target.value)} placeholder={money ? "0 F" : "0"} /></Field>
+  );
+
+  return (
+    <ModalShell title={isNew ? `Nouvelle activité ${NIVEAUX_PLAN[niveau]}` : "Modifier l'activité"} onClose={onClose}>
+      <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 12 }}>
+        {entry.departement} · {niveau === "mensuel" ? `${MOIS_ANNEE[entry.mois]} ${entry.annee}` : entry.annee}
+      </div>
+
+      {parentsUtiles.length > 0 && (
+        <Field label={niveau === "trimestriel" ? "Activité de l'année concernée" : "Action du trimestre concernée"}>
+          <select style={inputStyle} value={f.parentId} onChange={e => chooseParent(e.target.value)}>
+            <option value="">— Aucune / nouvelle —</option>
+            {parentsUtiles.map(p => <option key={p.id} value={p.id}>{p.activite}</option>)}
+          </select>
+        </Field>
+      )}
+
+      {txt("activite", niveau === "mensuel" ? "Tâche à faire" : "Activité", niveau === "mensuel" ? "Ex. Réserver la salle du séminaire" : "Ex. Grand séminaire des prédicateurs à Bobo")}
+      {txt("objectif", "Objectif", "Ex. Former 60 prédicateurs")}
+
+      {niveau === "annuel" && (
+        <Field label="Trimestre prévu">
+          <ChipPicker options={TRIMESTRES.map(t => ({ value: t.n, label: `${t.label} · ${t.mois}` }))} value={Number(f.trimestre)} onChange={v => set("trimestre", v)} small />
+        </Field>
+      )}
+      {niveau !== "annuel" && (
+        <Field label="Date prévue"><input type="date" style={inputStyle} value={f.date} onChange={e => set("date", e.target.value)} /></Field>
+      )}
+
+      {num("budget", "Budget prévu (FCFA)", true)}
+
+      <Field label="Statut">
+        <ChipPicker options={DP_STATUTS} value={f.statut} onChange={v => set("statut", v)} small />
+      </Field>
+
+      {niveau === "mensuel" && (f.statut === "realisee" || f.statut === "encours" || f.participantsReels !== "" || f.depenseReelle !== "") && (
+        <div style={{ background: "#F4F5EE", borderRadius: 11, padding: "11px 11px 1px", marginBottom: 13 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--primary)", marginBottom: 8 }}>Bilan de la tâche</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ flex: 1 }}>{num("participantsAttendus", "Participants attendus")}</div>
+            <div style={{ flex: 1 }}>{num("participantsReels", "Participants réels")}</div>
+          </div>
+          {num("depenseReelle", "Dépense réelle (FCFA)", true)}
+          {(f.budget !== "" || f.depenseReelle !== "") && (
+            <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 12, color: ecart < 0 ? "var(--danger)" : "#1F7A5C" }}>
+              {ecart < 0 ? `Dépassement de ${fcfa(-ecart)}` : `Économie de ${fcfa(ecart)}`}
+            </div>
+          )}
+        </div>
+      )}
+
+      <button onClick={() => setPlus(!plus)} style={{ fontSize: 12.5, fontWeight: 700, color: "var(--primary)", marginBottom: 12, display: "flex", alignItems: "center", gap: 4 }}>
+        <ChevronRight size={14} style={{ transform: plus ? "rotate(90deg)" : "none" }} /> {plus ? "Moins de détails" : "Plus de détails (facultatif)"}
+      </button>
+      {plus && (
+        <>
+          {txt("responsable", "Responsable", "Nom de la personne chargée")}
+          {txt("lieu", "Lieu / assemblées concernées", "Ex. BOBO, HOUNDE")}
+          {niveau === "annuel" && (
+            <Field label="Axe / domaine">
+              <select style={inputStyle} value={f.axe} onChange={e => set("axe", e.target.value)}>
+                <option value="">— Choisir —</option>
+                {DP_AXES.map(a => <option key={a}>{a}</option>)}
+              </select>
+            </Field>
+          )}
+          {niveau !== "mensuel" && (
+            <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ flex: 2 }}>{txt("indicateur", "Indicateur de réussite", "Ex. Nombre de prédicateurs formés")}</div>
+              <div style={{ flex: 1 }}>{num("cible", "Cible")}</div>
+            </div>
+          )}
+          {niveau !== "annuel" && txt("ressources", "Ressources nécessaires", "Ex. Salle, sonorisation, hébergement")}
+          {niveau === "mensuel" && f.statut !== "realisee" && f.statut !== "encours" && num("participantsAttendus", "Participants attendus")}
+          <Field label="Source de financement">
+            <select style={inputStyle} value={f.source} onChange={e => set("source", e.target.value)}>
+              <option value="">— Choisir —</option>
+              {DP_SOURCES.map(s => <option key={s}>{s}</option>)}
+            </select>
+          </Field>
+          <Field label="Observations">
+            <textarea style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} value={f.observations} onChange={e => set("observations", e.target.value)} />
+          </Field>
+        </>
+      )}
+
+      {error && <div style={{ fontSize: 12.5, color: "var(--danger)", fontWeight: 600, marginBottom: 10 }}>{error}</div>}
+      <PrimaryButton onClick={handleSubmit} icon={Check} full>Enregistrer</PrimaryButton>
+      {!isNew && (
+        <button onClick={() => { if (confirm("Supprimer cette activité ?")) onDelete(entry); }} style={{
+          width: "100%", marginTop: 10, color: "var(--danger)", fontSize: 13, fontWeight: 600,
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: 8
+        }}>
+          <Trash2 size={14} /> Supprimer cette activité
+        </button>
+      )}
+    </ModalShell>
+  );
+}
+
+function bilanPeriodeLabel(b) {
+  if (b.typePeriode === "Mois") return `${MOIS_ANNEE[b.mois] || ""} ${b.annee}`;
+  if (b.typePeriode === "Trimestre") return `${TRIMESTRES[(b.trimestre || 1) - 1].label} ${b.annee}`;
+  return `Année ${b.annee}`;
+}
+
+function BilansListe({ dept, annee, bilans, onAdd, onOpen, statsFor }) {
+  const ordre = { "Année": 0, "Trimestre": 1, "Mois": 2 };
+  const sorted = [...bilans].sort((a, b) => ordre[a.typePeriode] - ordre[b.typePeriode] || (Number(b.trimestre) || 0) - (Number(a.trimestre) || 0) || (Number(b.mois) || 0) - (Number(a.mois) || 0));
+  return (
+    <div>
+      <div style={{ marginBottom: 14 }}><PrimaryButton full icon={Plus} onClick={onAdd}>Faire un bilan</PrimaryButton></div>
+      {sorted.length === 0 ? <EmptyState icon={FileText} text={`Aucun bilan pour ${dept} en ${annee}.`} /> : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {sorted.map(b => {
+            const st = statsFor(b);
+            const text = [
+              `📋 *Bilan ${bilanPeriodeLabel(b)}* — ${b.departement}`,
+              st.total ? `${st.realisees}/${st.actifs} activités réalisées${st.taux !== null ? ` (${st.taux} %)` : ""} · Budget ${fcfa(st.budget)} · Dépensé ${fcfa(st.depense)}` : "",
+              b.resultats ? `\n*Résultats :* ${b.resultats}` : "", b.difficultes ? `*Difficultés :* ${b.difficultes}` : "",
+              b.solutions ? `*Solutions :* ${b.solutions}` : "", b.decisions ? `*Décisions :* ${b.decisions}` : "",
+              b.redigePar ? `\nRédigé par ${b.redigePar}` : "", "Mission Parole de Vie Burkina",
+            ].filter(Boolean).join("\n");
+            return (
+              <div key={b.id} style={{ background: "#fff", border: "1px solid var(--border)", borderLeft: "4px solid var(--accent)", borderRadius: 12, padding: "11px 12px" }}>
+                <div onClick={() => onOpen(b)} style={{ cursor: "pointer" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 700 }}>Bilan · {bilanPeriodeLabel(b)}</div>
+                    {st.taux !== null && <span style={{ fontSize: 12, fontWeight: 700, color: st.taux >= 70 ? "#1F7A5C" : st.taux >= 40 ? "var(--accent-dark)" : "var(--danger)" }}>{st.taux} % réalisé</span>}
+                  </div>
+                  {b.resultats && <div style={{ fontSize: 12, color: "var(--ink)", marginTop: 4 }}>✔ {b.resultats}</div>}
+                  {b.difficultes && <div style={{ fontSize: 12, color: "var(--danger)", marginTop: 3 }}>⚠ {b.difficultes}</div>}
+                </div>
+                <a href={shareWhatsappLink(text)} target="_blank" rel="noopener noreferrer" style={{
+                  display: "inline-flex", alignItems: "center", gap: 5, background: "#25D366", color: "#fff",
+                  fontSize: 11.5, fontWeight: 700, padding: "5px 10px", borderRadius: 8, marginTop: 9
+                }}><Send size={12} /> Partager</a>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BilanForm({ entry, onSave, onDelete, onClose }) {
+  const isNew = !entry.id;
+  const [b, setB] = useState({
+    typePeriode: entry.typePeriode || "Mois", mois: entry.mois ?? 0, trimestre: entry.trimestre || 1,
+    resultats: entry.resultats || "", difficultes: entry.difficultes || "", causes: entry.causes || "",
+    solutions: entry.solutions || "", decisions: entry.decisions || "", redigePar: entry.redigePar || "",
+  });
+  const set = (k, v) => setB(p => ({ ...p, [k]: v }));
+  const area = (k, label, ph) => (
+    <Field label={label}><textarea style={{ ...inputStyle, minHeight: 64, resize: "vertical" }} value={b[k]} onChange={e => set(k, e.target.value)} placeholder={ph} /></Field>
+  );
+  return (
+    <ModalShell title={isNew ? "Nouveau bilan" : "Modifier le bilan"} onClose={onClose}>
+      <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 12 }}>{entry.departement} · {entry.annee}</div>
+      <Field label="Bilan de quelle période ?">
+        <ChipPicker options={["Mois", "Trimestre", "Année"]} value={b.typePeriode} onChange={v => set("typePeriode", v)} small />
+      </Field>
+      {b.typePeriode === "Mois" && (
+        <Field label="Mois">
+          <select style={inputStyle} value={b.mois} onChange={e => set("mois", Number(e.target.value))}>
+            {MOIS_ANNEE.map((m, i) => <option key={m} value={i}>{m}</option>)}
+          </select>
+        </Field>
+      )}
+      {b.typePeriode === "Trimestre" && (
+        <Field label="Trimestre">
+          <ChipPicker options={TRIMESTRES.map(t => ({ value: t.n, label: t.label }))} value={b.trimestre} onChange={v => set("trimestre", v)} small />
+        </Field>
+      )}
+      {area("resultats", "Résultats obtenus / points forts", "Ce qui a été réalisé")}
+      {area("difficultes", "Difficultés rencontrées")}
+      {area("causes", "Causes")}
+      {area("solutions", "Solutions / recommandations")}
+      {area("decisions", "Décisions pour la période suivante")}
+      <Field label="Rédigé par"><input style={inputStyle} value={b.redigePar} onChange={e => set("redigePar", e.target.value)} /></Field>
+      <PrimaryButton full icon={Check} onClick={() => onSave({
+        ...entry, ...b, id: entry.id || uid(), date: new Date().toISOString().slice(0, 10),
+        mois: b.typePeriode === "Mois" ? b.mois : null, trimestre: b.typePeriode === "Trimestre" ? b.trimestre : null,
+      })}>Enregistrer le bilan</PrimaryButton>
+      {!isNew && (
+        <button onClick={() => { if (confirm("Supprimer ce bilan ?")) onDelete(entry); }} style={{
+          width: "100%", marginTop: 10, color: "var(--danger)", fontSize: 13, fontWeight: 600,
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: 8
+        }}><Trash2 size={14} /> Supprimer ce bilan</button>
+      )}
+    </ModalShell>
+  );
+}
+
+function PlansTableau({ deptPlans, annee }) {
+  const de = deptPlans.filter(p => Number(p.annee) === Number(annee));
+  const rows = DEPARTEMENTS_COORD.map(d => {
+    const items = de.filter(p => p.departement === d);
+    return {
+      d,
+      annuel: dpStats(items.filter(p => p.niveau === "annuel")),
+      mensuel: dpStats(items.filter(p => p.niveau === "mensuel")),
+    };
+  });
+  const tot = { annuel: dpStats(de.filter(p => p.niveau === "annuel")), mensuel: dpStats(de.filter(p => p.niveau === "mensuel")) };
+  const cell = { padding: "7px 5px", borderBottom: "1px solid var(--border)", textAlign: "right", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" };
+  const tauxColor = t => t === null ? "var(--ink-soft)" : t >= 70 ? "#1F7A5C" : t >= 40 ? "var(--accent-dark)" : "var(--danger)";
+
+  const text = [
+    `📊 *Plans d'action ${annee} — Coordination nationale*`, "",
+    ...rows.map(r => `• ${r.d} : ${r.annuel.total} activité(s) de l'année, ${r.mensuel.realisees}/${r.mensuel.actifs} tâches réalisées${r.mensuel.taux !== null ? ` (${r.mensuel.taux} %)` : ""}, budget ${fcfa(r.annuel.budget)}`),
+    "", `Total : ${tot.annuel.total} activités · budget annuel ${fcfa(tot.annuel.budget)} · dépensé ${fcfa(tot.mensuel.depense)}`,
+    "", "Mission Parole de Vie Burkina",
+  ].join("\n");
+
+  const trims = TRIMESTRES.map(t => ({ t, st: dpStats(de.filter(p => p.niveau === "annuel" && Number(p.trimestre) === t.n)) }));
+
+  return (
+    <div>
+      <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 10 }}>Vue d'ensemble de tous les départements pour {annee}. Se met à jour tout seul.</div>
+      <div style={{ overflowX: "auto", background: "#fff", border: "1px solid var(--border)", borderRadius: 11, padding: "4px 8px", marginBottom: 14 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5 }}>
+          <thead>
+            <tr style={{ color: "var(--ink-soft)", fontSize: 10, textTransform: "uppercase" }}>
+              <th style={{ ...cell, textAlign: "left" }}>Département</th>
+              <th style={cell}>Activ. année</th><th style={cell}>Budget prévu</th><th style={cell}>Tâches</th><th style={cell}>Réalisé</th><th style={cell}>Dépensé</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.d}>
+                <td style={{ ...cell, textAlign: "left", fontWeight: 700 }}>{r.d}</td>
+                <td style={cell}>{r.annuel.total}</td>
+                <td style={cell}>{fcfa(r.annuel.budget)}</td>
+                <td style={cell}>{r.mensuel.total}</td>
+                <td style={{ ...cell, fontWeight: 700, color: tauxColor(r.mensuel.taux) }}>{r.mensuel.taux === null ? "—" : `${r.mensuel.taux} %`}</td>
+                <td style={{ ...cell, color: r.mensuel.depense > r.mensuel.budget && r.mensuel.budget > 0 ? "var(--danger)" : "var(--ink)" }}>{fcfa(r.mensuel.depense)}</td>
+              </tr>
+            ))}
+            <tr style={{ fontWeight: 700, color: "var(--primary)" }}>
+              <td style={{ ...cell, textAlign: "left", borderBottom: "none" }}>Total</td>
+              <td style={{ ...cell, borderBottom: "none" }}>{tot.annuel.total}</td>
+              <td style={{ ...cell, borderBottom: "none" }}>{fcfa(tot.annuel.budget)}</td>
+              <td style={{ ...cell, borderBottom: "none" }}>{tot.mensuel.total}</td>
+              <td style={{ ...cell, borderBottom: "none", color: tauxColor(tot.mensuel.taux) }}>{tot.mensuel.taux === null ? "—" : `${tot.mensuel.taux} %`}</td>
+              <td style={{ ...cell, borderBottom: "none" }}>{fcfa(tot.mensuel.depense)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Activités de l'année par trimestre</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+        {trims.map(({ t, st }) => (
+          <div key={t.n} style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 10, padding: "9px 10px" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent-dark)" }}>{t.label} · {t.mois}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, marginTop: 2 }}>{st.realisees}/{st.actifs} réalisées</div>
+            <div style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>Budget {fcfa(st.budget)}</div>
+          </div>
+        ))}
+      </div>
+
+      <a href={shareWhatsappLink(text)} target="_blank" rel="noopener noreferrer" style={{
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#25D366", color: "#fff",
+        fontSize: 12.5, fontWeight: 700, padding: "10px 0", borderRadius: 9
+      }}><Send size={13} /> Partager le tableau par WhatsApp</a>
+    </div>
+  );
+}
 
 function ActionPlans({ actionPlans, setActionPlans, plansAnnuels, setPlansAnnuels, unlocked, showToast }) {
   const [mode, setMode] = useState("annuel"); // "annuel" | "suivi"
