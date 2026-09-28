@@ -849,6 +849,7 @@ export default function App() {
   const [expenseReports, setExpenseReports] = useState([]);
   const [deptPlans, setDeptPlans] = useState([]);
   const [deptBilans, setDeptBilans] = useState([]);
+  const [deptCodes, setDeptCodes] = useState({});
   const [coordUnlocked, setCoordUnlocked] = useState(false);
   const [coordNatUnlocked, setCoordNatUnlocked] = useState(false);
   const [toast, setToast] = useState(null);
@@ -879,7 +880,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [r, p, s, l, wp, sr, cs, dh, ap, br, mi, pa, ph, fr, ar, er, dpl, dbi] = await Promise.all([
+      const [r, p, s, l, wp, sr, cs, dh, ap, br, mi, pa, ph, fr, ar, er, dpl, dbi, dco] = await Promise.all([
         loadKey("regions-assemblies", REGIONS_DEFAULT),
         loadKey("pastors-directory", PASTORS_DEFAULT),
         loadKey("seminars-list", []),
@@ -898,6 +899,7 @@ export default function App() {
         loadKey("expense-reports", []),
         loadKey("dept-plans", []),
         loadKey("dept-bilans", []),
+        loadKey("dept-codes", {}),
       ]);
       const pWithPhotos = p.map(x => ({ ...x, photo: (ph && ph[x.id]) || x.photo || null }));
       setRegions(r); setPastors(pWithPhotos); setPastorsPhotos(ph || {}); setSeminars(s); setLeadership(l);
@@ -905,7 +907,7 @@ export default function App() {
       setCoordSeminars(cs); setDeptHeads(dh); setActionPlans(ap);
       setBibleReports(br); setMissionaries(mi); setPlansAnnuels(pa);
       setFinanceReports(fr); setActivityReports(ar); setExpenseReports(er);
-      setDeptPlans(dpl); setDeptBilans(dbi);
+      setDeptPlans(dpl); setDeptBilans(dbi); setDeptCodes(dco || {});
       setLoading(false);
     })();
   }, []);
@@ -970,6 +972,12 @@ export default function App() {
   const deleteDeptPlan = (entry) => upsertShared("dept-plans", setDeptPlans, entry, true);
   const saveDeptBilan = (entry) => upsertShared("dept-bilans", setDeptBilans, entry, false);
   const deleteDeptBilan = (entry) => upsertShared("dept-bilans", setDeptBilans, entry, true);
+  async function saveDeptCode(dept, code) {
+    const next = await updateKey("dept-codes", {}, (cur) => ({ ...(cur || {}), [dept]: code }));
+    if (next) { setDeptCodes(next); return true; }
+    showToast("⚠ Échec de l'enregistrement — réessayez (vérifiez la connexion)");
+    return false;
+  }
 
   const upcomingCount = useMemo(
     () => seminars.filter(s => { const d = daysUntil(s.date); return d !== null && d >= 0 && d <= 7; }).length,
@@ -1055,6 +1063,7 @@ export default function App() {
             plansAnnuels={plansAnnuels} setPlansAnnuels={persistPlansAnnuels}
             deptPlans={deptPlans} saveDeptPlan={saveDeptPlan} deleteDeptPlan={deleteDeptPlan}
             deptBilans={deptBilans} saveDeptBilan={saveDeptBilan} deleteDeptBilan={deleteDeptBilan}
+            deptCodes={deptCodes} saveDeptCode={saveDeptCode}
             leadership={leadership} pastors={pastors}
             unlocked={coordUnlocked} onUnlock={unlockCoord} onLock={lockCoord}
             natUnlocked={coordNatUnlocked} onUnlockNat={unlockCoordNat} onLockNat={lockCoordNat}
@@ -1062,7 +1071,7 @@ export default function App() {
           />
         )}
         {tab === "direction" && (
-          <Direction leadership={leadership} setLeadership={persistLeadership} showToast={showToast} />
+          <Direction leadership={leadership} setLeadership={persistLeadership} showToast={showToast} unlocked={coordUnlocked} onUnlock={unlockCoord} onLock={lockCoord} />
         )}
         {tab === "bible" && (
           <BibleTab
@@ -1206,7 +1215,8 @@ const GUIDE = [
     tab: "coordination", icon: Building2, titre: "Coordination",
     resume: "Les plans d'action et le pilotage national.",
     points: [
-      "« Plans départements » : chaque chef de département choisit son département et remplit son plan de l'année, du trimestre et du mois, puis fait le bilan. « Tableau » montre l'avancement de tous les départements.",
+      "« Plans départements » : chaque département a son espace réservé, ouvert par son propre code. Le chef y remplit le plan de l'année, du trimestre et du mois, puis fait le bilan. Il peut changer son code et le remettre à ses collaborateurs.",
+      "« Vue nationale » (code du chef du département) : le tableau de tous les départements et la création des codes de chaque département.",
       "« Responsables » : les chefs de département et leurs contacts.",
       "« Validation » : le coordonnateur national approuve ou rejette les séminaires (avec son code). Un séminaire rejeté ne compte pas dans la caisse.",
       "« Plan national » : le plan annuel de la coordination.",
@@ -1366,7 +1376,8 @@ function MenuTab({ setTab, showToast }) {
       <div style={box}>
         <p style={li}><b>Code du chef du département</b> : ajouter les séminaires nationaux, voir la caisse de la coordination et le récapitulatif national des finances, modifier le plan national.</p>
         <p style={li}><b>Code du coordonnateur national</b> : approuver ou rejeter les séminaires dans « Coordination → Validation ».</p>
-        <p style={{ ...li, margin: 0, color: "var(--ink-soft)", fontSize: 12.5 }}>Les deux codes se créent dans l'onglet Direction. Ne les partagez qu'avec les personnes concernées.</p>
+        <p style={li}><b>Code de chaque département</b> : ouvrir l'espace de son département dans « Coord. → Plans départements ». Il est créé par le chef du département national (« Vue nationale → Codes d'accès »), puis chaque chef peut le changer.</p>
+        <p style={{ ...li, margin: 0, color: "var(--ink-soft)", fontSize: 12.5 }}>Les codes du chef du département et du coordonnateur se créent dans l'onglet Direction. Ne remettez chaque code qu'aux personnes concernées.</p>
       </div>
 
       {section("Bon à savoir")}
@@ -3746,7 +3757,7 @@ function MessagerieParGroupe({ pastors }) {
 /*  DIRECTION                                                          */
 /* ------------------------------------------------------------------ */
 
-function Direction({ leadership, setLeadership, showToast }) {
+function Direction({ leadership, setLeadership, showToast, unlocked, onUnlock, onLock }) {
   const [form, setForm] = useState(leadership);
   useEffect(() => setForm(leadership), [leadership]);
 
@@ -3782,6 +3793,13 @@ function Direction({ leadership, setLeadership, showToast }) {
         ))}
       </div>
 
+      {leadership.pinChefDepartement && !unlocked ? (
+        <CoordLockPanel
+          leadership={leadership} unlocked={unlocked} onUnlock={onUnlock} onLock={onLock}
+          description="Les codes d'accès sont masqués. Entrez le code du chef du département pour les voir ou les changer. Les codes des départements se gèrent dans Coord. → Plans départements → Vue nationale."
+        />
+      ) : (
+        <>
       <div style={{ background: "#fff", borderRadius: 14, border: "1px solid var(--border)", padding: "16px", marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
           <Lock size={13} color="var(--accent-dark)" />
@@ -3815,7 +3833,8 @@ function Direction({ leadership, setLeadership, showToast }) {
           onChange={v => setForm({ ...form, pinCoordonnateurNational: v })}
         />
       </div>
-
+        </>
+      )}
 
       {changed && <PrimaryButton onClick={save} icon={Check} full>Enregistrer les modifications</PrimaryButton>}
     </div>
@@ -5913,7 +5932,7 @@ function CoordLockPanel({ leadership, unlocked, onUnlock, onLock, pinField = "pi
   );
 }
 
-function Coordination({ coordSeminars, setCoordSeminars, seminars, setSeminars, deptHeads, setDeptHeads, actionPlans, setActionPlans, plansAnnuels, setPlansAnnuels, deptPlans, saveDeptPlan, deleteDeptPlan, deptBilans, saveDeptBilan, deleteDeptBilan, leadership, pastors, unlocked, onUnlock, onLock, natUnlocked, onUnlockNat, onLockNat, showToast }) {
+function Coordination({ coordSeminars, setCoordSeminars, seminars, setSeminars, deptHeads, setDeptHeads, actionPlans, setActionPlans, plansAnnuels, setPlansAnnuels, deptPlans, saveDeptPlan, deleteDeptPlan, deptBilans, saveDeptBilan, deleteDeptBilan, deptCodes, saveDeptCode, leadership, pastors, unlocked, onUnlock, onLock, natUnlocked, onUnlockNat, onLockNat, showToast }) {
   const [subTab, setSubTab] = useState("plansdept");
 
   return (
@@ -5924,7 +5943,7 @@ function Coordination({ coordSeminars, setCoordSeminars, seminars, setSeminars, 
         Pour programmer un séminaire ou un autre programme national, direction les onglets « Séminaires » ou « Programme » → section Coordination.
       </div>
 
-      <CoordLockPanel leadership={leadership} unlocked={unlocked} onUnlock={onUnlock} onLock={onLock} />
+      {subTab !== "plansdept" && <CoordLockPanel leadership={leadership} unlocked={unlocked} onUnlock={onUnlock} onLock={onLock} />}
 
       <div style={{ display: "flex", gap: 6, marginBottom: 16, background: "#fff", padding: 4, borderRadius: 11, border: "1px solid var(--border)", flexWrap: "wrap" }}>
         <button onClick={() => setSubTab("plansdept")} style={segButtonStyle(subTab === "plansdept")}>Plans départements</button>
@@ -5937,6 +5956,8 @@ function Coordination({ coordSeminars, setCoordSeminars, seminars, setSeminars, 
         <PlansDepartements
           deptPlans={deptPlans} saveDeptPlan={saveDeptPlan} deleteDeptPlan={deleteDeptPlan}
           deptBilans={deptBilans} saveDeptBilan={saveDeptBilan} deleteDeptBilan={deleteDeptBilan}
+          deptCodes={deptCodes} saveDeptCode={saveDeptCode} deptHeads={deptHeads}
+          leadership={leadership} adminUnlocked={unlocked} onAdminUnlock={onUnlock} onAdminLock={onLock}
           showToast={showToast}
         />
       )}
@@ -6679,7 +6700,23 @@ function planToText(dept, titre, items) {
   return L.join("\n");
 }
 
-function PlansDepartements({ deptPlans, saveDeptPlan, deleteDeptPlan, deptBilans, saveDeptBilan, deleteDeptBilan, showToast }) {
+function readUnlockedDepts() {
+  try { return JSON.parse(sessionStorage.getItem("mpv-dept-unlocked") || "[]"); } catch (e) { return []; }
+}
+function writeUnlockedDepts(list) {
+  try { sessionStorage.setItem("mpv-dept-unlocked", JSON.stringify(list)); } catch (e) {}
+}
+function responsableOf(deptHeads, dept) {
+  const norm = (x) => (x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const d = norm(dept).split(" ")[0];
+  return (deptHeads || []).find(h => norm(h.departement).includes(d));
+}
+
+function PlansDepartements({ deptPlans, saveDeptPlan, deleteDeptPlan, deptBilans, saveDeptBilan, deleteDeptBilan, deptCodes, saveDeptCode, deptHeads, leadership, adminUnlocked, onAdminUnlock, onAdminLock, showToast }) {
+  const [espace, setEspace] = useState("dept");
+  const [unlockedDepts, setUnlockedDepts] = useState(readUnlockedDepts);
+  const [changingCode, setChangingCode] = useState(false);
+  const [natVue, setNatVue] = useState("tableau");
   const now = new Date();
   const [dept, setDept] = useState(() => { try { return localStorage.getItem("mpv-dp-dept") || ""; } catch (e) { return ""; } });
   const [annee, setAnnee] = useState(now.getFullYear());
@@ -6713,31 +6750,95 @@ function PlansDepartements({ deptPlans, saveDeptPlan, deleteDeptPlan, deptBilans
   }
 
   const annees = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1, now.getFullYear() + 2];
+  const viaCode = unlockedDepts.includes(dept);
+  const acces = !!dept && (adminUnlocked || viaCode);
+  const resp = responsableOf(deptHeads, dept);
+
+  function unlockDept(d) { const next = [...new Set([...unlockedDepts, d])]; setUnlockedDepts(next); writeUnlockedDepts(next); }
+  function lockDept(d) { const next = unlockedDepts.filter(x => x !== d); setUnlockedDepts(next); writeUnlockedDepts(next); }
+
+  const choixAnnee = (
+    <Field label="Année">
+      <ChipPicker options={annees.map(a => ({ value: a, label: String(a) }))} value={annee} onChange={setAnnee} small />
+    </Field>
+  );
 
   return (
     <div>
-      <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 12, lineHeight: 1.45 }}>
-        Chaque chef de département remplit ici son plan d'action : l'année, puis chaque trimestre, puis chaque mois, et fait le bilan.
-      </div>
-
-      <Field label="Mon département">
-        <ChipPicker options={DEPARTEMENTS_COORD} value={dept} onChange={chooseDept} small />
-      </Field>
-      <Field label="Année">
-        <ChipPicker options={annees.map(a => ({ value: a, label: String(a) }))} value={annee} onChange={setAnnee} small />
-      </Field>
-
-      <div style={{ display: "flex", gap: 4, marginBottom: 14, background: "#fff", padding: 4, borderRadius: 11, border: "1px solid var(--border)", overflowX: "auto" }}>
-        {[["annee", "Année"], ["trimestre", "Trimestre"], ["mois", "Mois"], ["bilan", "Bilan"], ["tableau", "Tableau"]].map(([k, l]) => (
-          <button key={k} onClick={() => setVue(k)} style={{ ...segButtonStyle(vue === k), flex: "1 0 auto", padding: "8px 9px" }}>{l}</button>
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        {[["dept", "Mon département"], ["national", "Vue nationale"]].map(([k, l]) => (
+          <button key={k} onClick={() => setEspace(k)} style={{
+            flex: 1, padding: "9px 0", borderRadius: 10, fontSize: 12.5, fontWeight: 700,
+            border: `1.5px solid ${espace === k ? "var(--primary)" : "var(--border)"}`,
+            background: espace === k ? "var(--primary)" : "#fff", color: espace === k ? "#fff" : "var(--ink-soft)"
+          }}>{l}</button>
         ))}
       </div>
 
-      {vue === "tableau" ? (
-        <PlansTableau deptPlans={deptPlans} annee={annee} />
-      ) : !dept ? (
-        <EmptyState icon={Target} text="Choisissez d'abord votre département ci-dessus." />
-      ) : vue === "annee" ? (
+      {espace === "national" ? (
+        <>
+          <CoordLockPanel
+            leadership={leadership} unlocked={adminUnlocked} onUnlock={onAdminUnlock} onLock={onAdminLock}
+            description="La vue nationale (tableau de tous les départements et codes d'accès des départements) est réservée au chef du département."
+          />
+          {adminUnlocked && (
+            <>
+              <div style={{ display: "flex", gap: 6, marginBottom: 14, background: "#fff", padding: 4, borderRadius: 11, border: "1px solid var(--border)" }}>
+                <button onClick={() => setNatVue("tableau")} style={segButtonStyle(natVue === "tableau")}>Tableau des départements</button>
+                <button onClick={() => setNatVue("codes")} style={segButtonStyle(natVue === "codes")}>Codes d'accès</button>
+              </div>
+              {natVue === "tableau" ? (
+                <>{choixAnnee}<PlansTableau deptPlans={deptPlans} annee={annee} /></>
+              ) : (
+                <DeptCodesAdmin deptCodes={deptCodes} saveDeptCode={saveDeptCode} showToast={showToast} />
+              )}
+            </>
+          )}
+        </>
+      ) : (
+        <>
+      <Field label="Choisissez votre département">
+        <ChipPicker options={DEPARTEMENTS_COORD} value={dept} onChange={chooseDept} small />
+      </Field>
+
+      {!dept ? (
+        <EmptyState icon={Target} text="Touchez le nom de votre département pour ouvrir son espace." />
+      ) : !acces ? (
+        <DeptLockPanel dept={dept} code={deptCodes[dept]} onUnlock={() => { unlockDept(dept); showToast(`Espace ${dept} ouvert`); }} />
+      ) : (
+        <>
+          <div style={{ background: "linear-gradient(135deg, var(--primary), var(--primary-light))", color: "#fff", borderRadius: 14, padding: "13px 15px", marginBottom: 14 }}>
+            <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--accent)", fontWeight: 700 }}>Espace du département</div>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 700, marginTop: 2 }}>{dept}</div>
+            <div style={{ fontSize: 12, opacity: .85, marginTop: 2 }}>
+              {resp ? `Chef : ${resp.nom}${resp.contact ? " · " + resp.contact : ""}` : "Chef du département non renseigné (Coord. → Responsables)"}
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+              {(viaCode || adminUnlocked) && (
+                <button onClick={() => setChangingCode(true)} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,.15)", borderRadius: 8, padding: "6px 10px" }}>
+                  <Lock size={13} /> Changer le code
+                </button>
+              )}
+              {viaCode && (
+                <button onClick={() => { lockDept(dept); showToast("Espace verrouillé"); }} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,.15)", borderRadius: 8, padding: "6px 10px" }}>
+                  <Unlock size={13} /> Verrouiller
+                </button>
+              )}
+              {!viaCode && adminUnlocked && (
+                <span style={{ fontSize: 11.5, opacity: .85, alignSelf: "center" }}>Ouvert avec le code du chef du département</span>
+              )}
+            </div>
+          </div>
+
+          {choixAnnee}
+
+          <div style={{ display: "flex", gap: 4, marginBottom: 14, background: "#fff", padding: 4, borderRadius: 11, border: "1px solid var(--border)", overflowX: "auto" }}>
+            {[["annee", "Année"], ["trimestre", "Trimestre"], ["mois", "Mois"], ["bilan", "Bilan"]].map(([k, l]) => (
+              <button key={k} onClick={() => setVue(k)} style={{ ...segButtonStyle(vue === k), flex: "1 0 auto", padding: "8px 9px" }}>{l}</button>
+            ))}
+          </div>
+
+      {vue === "annee" ? (
         <PlanListe
           titre={`de l'année ${annee}`} dept={dept} items={annuels}
           groupBy={i => i.trimestre ? `${TRIMESTRES[i.trimestre - 1].label} · ${TRIMESTRES[i.trimestre - 1].mois}` : "Trimestre non précisé"}
@@ -6787,7 +6888,17 @@ function PlansDepartements({ deptPlans, saveDeptPlan, deleteDeptPlan, deptBilans
             : b.typePeriode === "Trimestre" ? trimestriels.filter(p => Number(p.trimestre) === Number(b.trimestre)) : annuels)}
         />
       )}
+        </>
+      )}
+        </>
+      )}
 
+      {changingCode && (
+        <ChangeDeptCodeForm
+          dept={dept} onClose={() => setChangingCode(false)}
+          onSave={async code => { const ok = await saveDeptCode(dept, code); if (ok) { setChangingCode(false); showToast("Nouveau code enregistré"); } }}
+        />
+      )}
       {editing && (
         <PlanItemForm
           entry={editing} parents={editing.niveau === "trimestriel" ? annuels : editing.niveau === "mensuel" ? trimestriels : []}
@@ -6802,6 +6913,107 @@ function PlansDepartements({ deptPlans, saveDeptPlan, deleteDeptPlan, deptBilans
           onClose={() => setEditingBilan(null)}
         />
       )}
+    </div>
+  );
+}
+
+function DeptLockPanel({ dept, code, onUnlock }) {
+  const [pin, setPin] = useState("");
+  const [err, setErr] = useState(false);
+  function tryUnlock() {
+    if (code && pin.trim() === String(code)) { setPin(""); setErr(false); onUnlock(); }
+    else setErr(true);
+  }
+  return (
+    <div style={{ background: "#fff", borderRadius: 14, border: "1px solid var(--border)", padding: 16, marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+        <Lock size={16} color="var(--accent-dark)" />
+        <div style={{ fontSize: 14.5, fontWeight: 700, color: "var(--primary)" }}>Espace réservé · {dept}</div>
+      </div>
+      {!code ? (
+        <div style={{ fontSize: 12.5, color: "var(--danger)", lineHeight: 1.45 }}>
+          Aucun code n'a encore été créé pour ce département. Le chef du département national doit le créer dans « Vue nationale → Codes d'accès », puis le remettre au chef de ce département.
+        </div>
+      ) : (
+        <>
+          <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 10, lineHeight: 1.45 }}>
+            Entrez le code du département. Seuls le chef du département et les personnes à qui il l'a remis peuvent ouvrir cet espace.
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ flex: 1 }}>
+              <PinField value={pin} placeholder="Code du département" onChange={v => { setPin(v); setErr(false); }} onKeyDown={e => e.key === "Enter" && tryUnlock()} />
+            </div>
+            <button onClick={tryUnlock} aria-label="Ouvrir l'espace" style={{ background: "var(--primary)", color: "#fff", borderRadius: 9, padding: "0 16px" }}>
+              <Unlock size={15} />
+            </button>
+          </div>
+          {err && <div style={{ fontSize: 12, color: "var(--danger)", marginTop: 6 }}>Code incorrect.</div>}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ChangeDeptCodeForm({ dept, onSave, onClose }) {
+  const [a, setA] = useState("");
+  const [b, setB] = useState("");
+  const [err, setErr] = useState("");
+  const [saving, setSaving] = useState(false);
+  async function submit() {
+    if (a.trim().length < 4) { setErr("Le code doit avoir au moins 4 caractères."); return; }
+    if (a.trim() !== b.trim()) { setErr("Les deux codes ne sont pas identiques."); return; }
+    setSaving(true); await onSave(a.trim()); setSaving(false);
+  }
+  return (
+    <ModalShell title={`Nouveau code · ${dept}`} onClose={onClose}>
+      <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 12, lineHeight: 1.45 }}>
+        L'ancien code ne marchera plus. Remettez le nouveau code uniquement aux personnes qui doivent travailler dans cet espace.
+      </div>
+      <Field label="Nouveau code"><PinField value={a} onChange={v => { setA(v); setErr(""); }} placeholder="Au moins 4 chiffres ou lettres" /></Field>
+      <Field label="Confirmer le nouveau code"><PinField value={b} onChange={v => { setB(v); setErr(""); }} placeholder="Retapez le code" /></Field>
+      {err && <div style={{ fontSize: 12.5, color: "var(--danger)", fontWeight: 600, marginBottom: 10 }}>{err}</div>}
+      <PrimaryButton full icon={Check} onClick={saving ? undefined : submit}>{saving ? "Enregistrement…" : "Enregistrer le nouveau code"}</PrimaryButton>
+    </ModalShell>
+  );
+}
+
+function DeptCodesAdmin({ deptCodes, saveDeptCode, showToast }) {
+  const [drafts, setDrafts] = useState({});
+  return (
+    <div>
+      <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 12, lineHeight: 1.45 }}>
+        Créez un code pour chaque département et remettez-le à son chef. Il pourra ensuite le changer lui-même et le partager avec ses collaborateurs. Le code du chef du département national ouvre tous les espaces.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {DEPARTEMENTS_COORD.map(d => {
+          const draft = drafts[d] ?? (deptCodes[d] || "");
+          const changed = draft !== (deptCodes[d] || "");
+          return (
+            <div key={d} style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 12, padding: "11px 12px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 700 }}>{d}</div>
+                <span style={{ fontSize: 10.5, fontWeight: 700, borderRadius: 99, padding: "2px 8px", color: deptCodes[d] ? "#1F7A5C" : "var(--danger)", background: deptCodes[d] ? "#E3F1EA" : "#F5E4E4" }}>
+                  {deptCodes[d] ? "Code créé" : "Pas de code"}
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <PinField value={draft} onChange={v => setDrafts({ ...drafts, [d]: v })} placeholder="Au moins 4 caractères" />
+                </div>
+                {changed && (
+                  <button onClick={async () => {
+                    if (draft.trim().length < 4) { showToast("Le code doit avoir au moins 4 caractères"); return; }
+                    const ok = await saveDeptCode(d, draft.trim());
+                    if (ok) { showToast(`Code de ${d} enregistré`); setDrafts(x => { const n = { ...x }; delete n[d]; return n; }); }
+                  }} style={{ background: "var(--primary)", color: "#fff", borderRadius: 9, padding: "0 14px", fontSize: 12.5, fontWeight: 700 }}>
+                    Enregistrer
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
