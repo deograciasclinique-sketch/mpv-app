@@ -1,0 +1,24 @@
+# Mission Parole de Vie Burkina — Mission & Formation
+
+Application du département Mission et Formation (React + Vite + Firebase, installable sur téléphone).
+
+## Onglets principaux
+- Accueil, Séminaires, Programme, Bible, Répertoire, Coordination, Messages, Direction
+- **Rapport** : rapports des séminaires, **rapport hebdomadaire d'activités** (culte, mission, formation, famille, bilan) et rapport de coordination
+- **Finances** : chaque financier d'assemblée dépose le rapport financier de la semaine (offrandes, dîmes, BP, dons volontaires). La répartition Assemblée / District / Coordination / Afrique est calculée automatiquement. Le récapitulatif national est protégé par le code du chef du département.
+
+## Répartition des finances
+| Source | Assemblée | District | Coordination | Afrique |
+|---|---|---|---|---|
+| Offrandes | 70 % | 10 % | 10 % | 10 % |
+| Dîmes | 20 % | 25 % | 35 % | 20 % |
+| BP | 20 % | 25 % | 35 % | 20 % |
+| Dons volontaires | — | — | 100 % | — |
+
+## Données
+Toutes les données sont dans Firestore, collection `mpv-data` (voir `firestore.rules`).
+Les nouveaux documents sont `finance-reports` et `activity-reports`.
+
+## Commandes
+- `npm install` puis `npm run dev` pour lancer en local
+- `npm run build` pour construire (Vercel le fait automatiquement à chaque envoi sur GitHub)
