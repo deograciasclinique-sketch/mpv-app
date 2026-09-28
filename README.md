@@ -35,6 +35,13 @@ Onglet **Coord. → Plans départements**. Chaque chef de département (Missions
 - **Bilan** : résultats, difficultés, solutions et décisions, par mois, trimestre ou année ;
 - **Tableau** : vue d'ensemble de tous les départements (taux de réalisation, budgets, dépenses).
 
+## Menu : partager l'app et guide
+Bouton **MENU** en haut à droite (et raccourci « Partager & aide » sur l'accueil) :
+- **Partager l'application** : envoi du lien par WhatsApp (avec les instructions d'installation), partage natif du téléphone, copie du lien, code QR à scanner ;
+- **Installer l'app** sur Android et iPhone ;
+- **Guide d'utilisation** de chaque onglet, avec un bouton pour l'ouvrir ;
+- **Codes d'accès** et **bon à savoir**.
+
 ## Données
 Toutes les données sont dans Firestore, collection `mpv-data` (voir `firestore.rules`).
 Les nouveaux documents sont `finance-reports`, `activity-reports`, `expense-reports`, `dept-plans` et `dept-bilans`.

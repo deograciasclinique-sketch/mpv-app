@@ -4,8 +4,10 @@ import {
   X, Check, Bell, Trash2, ChevronRight, Search, Clock, MapPin, Copy, Send,
   ClipboardList, FileText, BarChart3, Image as ImageIcon, Video, Paperclip,
   BookOpen, Lock, Unlock, Target, CheckCircle2, AlertTriangle, ExternalLink,
-  ChevronLeft, Building2, Navigation, Share2, XCircle, Wallet, ShieldCheck, Filter, Globe, Eye, EyeOff, Camera
+  ChevronLeft, Building2, Navigation, Share2, XCircle, Wallet, ShieldCheck, Filter, Globe, Eye, EyeOff, Camera,
+  Menu, QrCode, Smartphone
 } from "lucide-react";
+import QRCode from "qrcode";
 import { loadKey, saveKey, updateKey } from "./firebase.js";
 
 /* ------------------------------------------------------------------ */
@@ -987,8 +989,9 @@ export default function App() {
 
   return (
     <Shell>
-      <Header />
+      <Header onMenu={() => setTab("aide")} active={tab === "aide"} />
       <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 90px" }}>
+        {tab === "aide" && <MenuTab setTab={setTab} showToast={showToast} />}
         {tab === "accueil" && (
           <Accueil seminars={seminars} coordSeminars={coordSeminars} pastors={pastors} regions={regions} setTab={setTab} />
         )}
@@ -1118,10 +1121,276 @@ function Shell({ children }) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  MENU : PARTAGER L'APP + GUIDE D'UTILISATION                        */
+/* ------------------------------------------------------------------ */
+
+const APP_URL = "https://mpv-app.vercel.app";
+
+const SHARE_MESSAGE = [
+  "🙏 *Application Mission Parole de Vie Burkina*",
+  "Département Mission et Formation",
+  "",
+  "Séminaires, programmes, rapports, finances et plans d'action de toutes les assemblées, au même endroit.",
+  "",
+  `👉 Ouvrez ce lien : ${APP_URL}`,
+  "",
+  "Pour l'installer sur votre téléphone :",
+  "• Android (Chrome) : menu ⋮ puis « Installer l'application » ou « Ajouter à l'écran d'accueil »",
+  "• iPhone (Safari) : bouton Partager puis « Sur l'écran d'accueil »",
+].join("\n");
+
+const GUIDE = [
+  {
+    tab: "accueil", icon: Home, titre: "Accueil",
+    resume: "Le tableau de bord de l'application.",
+    points: [
+      "Le verset du jour, les chiffres clés et les rappels des programmes des 7 prochains jours.",
+      "Les boutons ronds en haut ouvrent directement Séminaires, Programme, Bible, Rapport et Finances.",
+    ],
+  },
+  {
+    tab: "seminaires", icon: CalendarDays, titre: "Séminaires",
+    resume: "Programmer les séminaires des assemblées et de la coordination.",
+    points: [
+      "« Assemblées » : choisissez l'assemblée puis « + » pour programmer un séminaire (thème, date, heure, lieu, prédicateurs, budget).",
+      "Affectez si possible 2 ou 3 prédicateurs à chaque séminaire.",
+      "« Coordination nationale » : les séminaires nationaux, modifiables avec le code du chef du département.",
+      "Le budget d'un séminaire est compté tout seul comme dépense prévue dans la caisse.",
+    ],
+  },
+  {
+    tab: "programme", icon: ClipboardList, titre: "Programme",
+    resume: "Les autres programmes : formations, prières, communions, retraites, conventions, QG.",
+    points: [
+      "Vue par mois ou liste complète, pour les assemblées et pour la coordination.",
+      "« Notes libres » pour noter ce qui n'entre dans aucune case.",
+    ],
+  },
+  {
+    tab: "rapport", icon: FileText, titre: "Rapport",
+    resume: "Déposer les rapports chaque semaine.",
+    points: [
+      "« Séminaires » : le rapport d'un séminaire (participants, invités, sauvés, témoignages, dépenses, photos, lien vidéo). Les dépenses déclarées passent toutes seules en dépenses effectuées dans la caisse.",
+      "« Activités semaine » : le rapport hebdomadaire complet de l'assemblée (culte, mission, écoles de base, prière, QG, formation, famille, difficultés). La partie finances est reprise du rapport du financier.",
+      "« Coordination » : les rapports des programmes nationaux.",
+      "Chaque rapport se partage par WhatsApp d'un seul bouton.",
+    ],
+  },
+  {
+    tab: "finances", icon: Wallet, titre: "Finances",
+    resume: "Recettes, caisse et dépenses de chaque assemblée et de la coordination.",
+    points: [
+      "« Recettes » : le financier choisit son assemblée, puis « Nouveau rapport financier ». Il saisit les offrandes, dîmes, besoin présent (BP) et dons volontaires. La répartition et la part Convention se calculent toutes seules.",
+      "« Caisse & dépenses » : le solde en caisse, les dépenses prévues et effectuées, et le reste à ne pas dépasser. La caisse passe en rouge si le solde devient négatif.",
+      "« National » : réservé au chef du département. Totaux de la semaine, assemblées qui n'ont pas déposé, caisses en rouge.",
+    ],
+  },
+  {
+    tab: "bible", icon: BookOpen, titre: "Bible",
+    resume: "Lire la Bible et rendre compte de sa lecture.",
+    points: [
+      "« Lecteur » : la lecture du jour et l'accès aux livres.",
+      "« Rapport de lecture » : chaque pasteur indique chaque semaine ce qu'il a lu.",
+    ],
+  },
+  {
+    tab: "repertoire", icon: Users, titre: "Répertoire",
+    resume: "Les contacts de la mission.",
+    points: [
+      "Les pasteurs, prédicateurs et aspirants avec leur téléphone.",
+      "Les régions et leurs assemblées, avec le pasteur titulaire et son contact.",
+      "Les missionnaires.",
+    ],
+  },
+  {
+    tab: "coordination", icon: Building2, titre: "Coordination",
+    resume: "Les plans d'action et le pilotage national.",
+    points: [
+      "« Plans départements » : chaque chef de département choisit son département et remplit son plan de l'année, du trimestre et du mois, puis fait le bilan. « Tableau » montre l'avancement de tous les départements.",
+      "« Responsables » : les chefs de département et leurs contacts.",
+      "« Validation » : le coordonnateur national approuve ou rejette les séminaires (avec son code). Un séminaire rejeté ne compte pas dans la caisse.",
+      "« Plan national » : le plan annuel de la coordination.",
+    ],
+  },
+  {
+    tab: "messagerie", icon: MessageCircle, titre: "Messages",
+    resume: "Prévenir les pasteurs et prédicateurs par WhatsApp.",
+    points: [
+      "« Par séminaire » : envoie la date, l'heure et le thème aux prédicateurs affectés.",
+      "« Par catégorie » : écrire à tous les pasteurs, prédicateurs ou aspirants d'un coup.",
+    ],
+  },
+  {
+    tab: "direction", icon: Shield, titre: "Direction",
+    resume: "Les responsables de la mission et les codes d'accès.",
+    points: [
+      "Le président Afrique, le responsable du département Afrique, le coordonnateur et le responsable Mission et Formation du pays.",
+      "C'est ici qu'on crée le code du chef du département et le code du coordonnateur national.",
+    ],
+  },
+];
+
+function ShareAppCard({ showToast }) {
+  const [qr, setQr] = useState("");
+  const [showQr, setShowQr] = useState(false);
+  const canShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
+
+  useEffect(() => {
+    let alive = true;
+    QRCode.toDataURL(APP_URL, { width: 480, margin: 1, color: { dark: "#1E2A4A", light: "#FFFFFF" } })
+      .then(url => { if (alive) setQr(url); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  async function copier() {
+    try {
+      await navigator.clipboard.writeText(APP_URL);
+      showToast("Lien copié");
+    } catch (e) {
+      showToast("Copie impossible : notez le lien affiché");
+    }
+  }
+  async function partager() {
+    try { await navigator.share({ title: "Mission Parole de Vie Burkina", text: SHARE_MESSAGE, url: APP_URL }); } catch (e) {}
+  }
+
+  const btn = { display: "flex", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 10, padding: "10px 0", fontSize: 13, fontWeight: 700, textDecoration: "none" };
+  return (
+    <div style={{ background: "linear-gradient(135deg, var(--primary), var(--primary-light))", borderRadius: 16, padding: 16, color: "#fff", marginBottom: 18 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+        <Share2 size={18} color="var(--accent)" />
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 700 }}>Partager l'application</div>
+      </div>
+      <div style={{ fontSize: 12.5, opacity: .85, lineHeight: 1.45, marginBottom: 12 }}>
+        Envoyez le lien aux pasteurs, prédicateurs, financiers et chefs de département. Le message explique aussi comment installer l'app.
+      </div>
+      <div style={{ background: "rgba(255,255,255,.12)", borderRadius: 10, padding: "9px 12px", fontSize: 14, fontWeight: 700, letterSpacing: ".02em", marginBottom: 12, userSelect: "all", wordBreak: "break-all" }}>
+        {APP_URL.replace("https://", "")}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <a href={shareWhatsappLink(SHARE_MESSAGE)} target="_blank" rel="noopener noreferrer" style={{ ...btn, background: "#25D366", color: "#fff", gridColumn: "1 / -1" }}>
+          <Send size={15} /> Envoyer par WhatsApp
+        </a>
+        {canShare && (
+          <button onClick={partager} style={{ ...btn, background: "#fff", color: "var(--primary)", gridColumn: "1 / -1" }}>
+            <Share2 size={15} /> Partager autrement (SMS, Facebook…)
+          </button>
+        )}
+        <button onClick={copier} style={{ ...btn, background: "rgba(255,255,255,.15)", color: "#fff" }}>
+          <Copy size={15} /> Copier le lien
+        </button>
+        <button onClick={() => setShowQr(!showQr)} style={{ ...btn, background: "rgba(255,255,255,.15)", color: "#fff" }}>
+          <QrCode size={15} /> {showQr ? "Masquer le QR" : "Code QR"}
+        </button>
+      </div>
+      {showQr && (
+        <div style={{ background: "#fff", borderRadius: 12, padding: 14, marginTop: 12, textAlign: "center" }}>
+          {qr ? <img src={qr} alt={`Code QR vers ${APP_URL}`} style={{ width: "100%", maxWidth: 240, display: "block", margin: "0 auto" }} /> : <div style={{ color: "var(--ink-soft)", fontSize: 12 }}>Préparation du code…</div>}
+          <div style={{ fontSize: 12, color: "var(--ink)", marginTop: 8, lineHeight: 1.4 }}>
+            À faire scanner avec l'appareil photo du téléphone, par exemple lors d'une réunion ou d'un séminaire.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MenuTab({ setTab, showToast }) {
+  const [ouvert, setOuvert] = useState(null);
+  const section = (t) => <div style={{ fontFamily: "var(--font-display)", fontSize: 17, fontWeight: 700, color: "var(--primary)", margin: "4px 0 10px" }}>{t}</div>;
+  const box = { background: "#fff", border: "1px solid var(--border)", borderRadius: 13, padding: "12px 14px", marginBottom: 18 };
+  const li = { fontSize: 13, lineHeight: 1.5, color: "var(--ink)", margin: "0 0 6px" };
+
+  return (
+    <div>
+      <SectionTitle sub="Partager l'application et apprendre à l'utiliser">Menu</SectionTitle>
+
+      <ShareAppCard showToast={showToast} />
+
+      {section("Installer l'app sur le téléphone")}
+      <div style={box}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13.5, fontWeight: 700, marginBottom: 6 }}><Smartphone size={15} color="var(--primary)" /> Android</div>
+        <ol style={{ paddingLeft: 20, margin: "0 0 12px" }}>
+          <li style={li}>Ouvrez le lien de l'application dans <b>Chrome</b>.</li>
+          <li style={li}>Touchez le menu <b>⋮</b> en haut à droite.</li>
+          <li style={li}>Choisissez <b>« Installer l'application »</b> ou <b>« Ajouter à l'écran d'accueil »</b>.</li>
+        </ol>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13.5, fontWeight: 700, marginBottom: 6 }}><Smartphone size={15} color="var(--primary)" /> iPhone</div>
+        <ol style={{ paddingLeft: 20, margin: 0 }}>
+          <li style={li}>Ouvrez le lien dans <b>Safari</b>.</li>
+          <li style={li}>Touchez le bouton <b>Partager</b> (le carré avec une flèche vers le haut).</li>
+          <li style={li}>Choisissez <b>« Sur l'écran d'accueil »</b>.</li>
+        </ol>
+        <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 8, lineHeight: 1.45 }}>
+          L'icône de la mission apparaît alors sur l'écran du téléphone, comme une vraie application. Elle se met à jour toute seule.
+        </div>
+      </div>
+
+      {section("Guide d'utilisation")}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 18 }}>
+        {GUIDE.map(g => {
+          const Icon = g.icon;
+          const open = ouvert === g.tab;
+          return (
+            <div key={g.tab} style={{ background: "#fff", border: `1px solid ${open ? "var(--primary)" : "var(--border)"}`, borderRadius: 12, overflow: "hidden" }}>
+              <button onClick={() => setOuvert(open ? null : g.tab)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 11, padding: "12px 13px", textAlign: "left" }}>
+                <div style={{ width: 34, height: 34, borderRadius: 9, background: "var(--accent-soft)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <Icon size={17} color="var(--accent-dark)" />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink)" }}>{g.titre}</div>
+                  <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>{g.resume}</div>
+                </div>
+                <ChevronRight size={16} color="var(--ink-soft)" style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform .2s" }} />
+              </button>
+              {open && (
+                <div style={{ padding: "0 14px 13px 58px" }}>
+                  <ul style={{ paddingLeft: 16, margin: "0 0 10px" }}>
+                    {g.points.map((p, i) => <li key={i} style={li}>{p}</li>)}
+                  </ul>
+                  <button onClick={() => setTab(g.tab)} style={{
+                    display: "inline-flex", alignItems: "center", gap: 5, background: "var(--primary)", color: "#fff",
+                    fontSize: 12.5, fontWeight: 700, padding: "7px 12px", borderRadius: 9
+                  }}>
+                    Ouvrir {g.titre} <ChevronRight size={14} />
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {section("Codes d'accès")}
+      <div style={box}>
+        <p style={li}><b>Code du chef du département</b> : ajouter les séminaires nationaux, voir la caisse de la coordination et le récapitulatif national des finances, modifier le plan national.</p>
+        <p style={li}><b>Code du coordonnateur national</b> : approuver ou rejeter les séminaires dans « Coordination → Validation ».</p>
+        <p style={{ ...li, margin: 0, color: "var(--ink-soft)", fontSize: 12.5 }}>Les deux codes se créent dans l'onglet Direction. Ne les partagez qu'avec les personnes concernées.</p>
+      </div>
+
+      {section("Bon à savoir")}
+      <div style={box}>
+        <ul style={{ paddingLeft: 18, margin: 0 }}>
+          <li style={li}>Il faut une connexion internet pour enregistrer. Si le message « Échec de l'enregistrement » apparaît, vérifiez la connexion et recommencez.</li>
+          <li style={li}>Tout ce qui est enregistré est visible par tous les utilisateurs de l'application, sauf les espaces protégés par un code.</li>
+          <li style={li}>Un seul rapport par assemblée et par semaine : en déposer un nouveau pour la même semaine remplace l'ancien, après confirmation.</li>
+          <li style={{ ...li, margin: 0 }}>Presque chaque écran a un bouton vert WhatsApp pour partager un rapport, un plan ou un bilan.</li>
+        </ul>
+      </div>
+
+      <div style={{ textAlign: "center", fontSize: 11.5, color: "var(--ink-soft)", marginTop: 6 }}>
+        Mission Parole de Vie Burkina · Département Mission et Formation
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  En-tête                                                            */
 /* ------------------------------------------------------------------ */
 
-function Header() {
+function Header({ onMenu, active }) {
   return (
     <div style={{
       background: "linear-gradient(135deg, var(--primary), var(--primary-light))",
@@ -1137,6 +1406,13 @@ function Header() {
           Burkina Faso · Mission &amp; Formation
         </div>
       </div>
+      <button onClick={onMenu} aria-label="Menu : partager l'app et guide d'utilisation" style={{
+        display: "flex", flexDirection: "column", alignItems: "center", gap: 2, flexShrink: 0,
+        background: active ? "var(--accent)" : "rgba(255,255,255,.12)", color: "#fff", borderRadius: 11, padding: "7px 10px"
+      }}>
+        <Menu size={19} />
+        <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".04em" }}>MENU</span>
+      </button>
     </div>
   );
 }
@@ -1301,6 +1577,7 @@ function Accueil({ seminars, coordSeminars, pastors, regions, setTab }) {
     { id: "bible", label: "Bible", icon: BookOpen },
     { id: "rapport", label: "Rapport", icon: FileText },
     { id: "finances", label: "Finances", icon: Wallet },
+    { id: "aide", label: "Partager & aide", icon: Share2 },
   ];
 
   return (
