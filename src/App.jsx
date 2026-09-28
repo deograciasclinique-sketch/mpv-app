@@ -4010,8 +4010,11 @@ function ReportForm({ entry, pastors, seminars, onSave, onDelete, onClose }) {
 const FIN_SOURCES = [
   { key: "offrandes", label: "Offrandes", parts: [70, 10, 10, 10] },
   { key: "dimes", label: "Dîmes", parts: [20, 25, 35, 20] },
-  { key: "bp", label: "BP", parts: [20, 25, 35, 20] },
+  { key: "bp", label: "Besoin présent (BP)", parts: [20, 25, 35, 20] },
 ];
+// Dons volontaires : 100 % à l'Assemblée.
+// Convention : prélevée sur le total général de chaque niveau.
+const CONVENTION_PARTS = { assemblee: 10, district: 10, coordination: 20, afrique: 0 };
 const FIN_DESTS = [
   { key: "assemblee", label: "Assemblée" },
   { key: "district", label: "District" },
@@ -4024,7 +4027,12 @@ function fcfa(n) {
 }
 
 function computeFinance(r) {
-  const res = { sources: {}, dv: 0, dvItems: [], totaux: { assemblee: 0, district: 0, coordination: 0, afrique: 0, total: 0 } };
+  const res = {
+    sources: {}, dv: 0, dvItems: [],
+    totaux: { assemblee: 0, district: 0, coordination: 0, afrique: 0, total: 0 },
+    convention: { assemblee: 0, district: 0, coordination: 0, afrique: 0, total: 0 },
+    apresConvention: { assemblee: 0, district: 0, coordination: 0, afrique: 0, total: 0 },
+  };
   FIN_SOURCES.forEach(src => {
     const montant = Number(r[src.key]) || 0;
     const repartition = {};
@@ -4036,8 +4044,14 @@ function computeFinance(r) {
   });
   res.dvItems = (r.dons || []).filter(d => (d.libelle || "").trim() || Number(d.montant) > 0);
   res.dv = res.dvItems.reduce((s, d) => s + (Number(d.montant) || 0), 0);
-  res.totaux.coordination += res.dv; // les dons volontaires vont à la Coordination
+  res.totaux.assemblee += res.dv; // les dons volontaires vont à 100 % à l'Assemblée
   res.totaux.total = res.totaux.assemblee + res.totaux.district + res.totaux.coordination + res.totaux.afrique;
+  FIN_DESTS.forEach(d => {
+    res.convention[d.key] = Math.round(res.totaux[d.key] * CONVENTION_PARTS[d.key] / 100);
+    res.apresConvention[d.key] = res.totaux[d.key] - res.convention[d.key];
+    res.convention.total += res.convention[d.key];
+    res.apresConvention.total += res.apresConvention[d.key];
+  });
   return res;
 }
 
@@ -4064,11 +4078,15 @@ function financeLines(r) {
     FIN_DESTS.forEach((d, i) => L.push(`${src.parts[i]}% ${d.label} : ${fcfa(F.sources[src.key].repartition[d.key])}`));
     L.push("");
   });
-  L.push(`🟢 DV : ${fcfa(F.dv)}`);
+  L.push(`🟢 DONS VOLONTAIRES : ${fcfa(F.dv)} (100% Assemblée)`);
   F.dvItems.forEach((d, i) => L.push(`${i + 1}- ${d.libelle || "Don"} : ${fcfa(d.montant)}`));
   L.push("");
   FIN_DESTS.forEach(d => L.push(`🟢 TOTAL ${d.label} : ${fcfa(F.totaux[d.key])}`));
-  L.push(`🟢 TOTAL : ${fcfa(F.totaux.total)}`);
+  L.push(`🟢 TOTAL GÉNÉRAL : ${fcfa(F.totaux.total)}`, "");
+  L.push(`🟡 CONVENTION : ${fcfa(F.convention.total)}`);
+  FIN_DESTS.forEach(d => L.push(`${CONVENTION_PARTS[d.key]}% ${d.label} : ${fcfa(F.convention[d.key])}`));
+  L.push("");
+  FIN_DESTS.forEach(d => L.push(`Reste ${d.label} après Convention : ${fcfa(F.apresConvention[d.key])}`));
   return L;
 }
 
@@ -4119,11 +4137,24 @@ function FinanceSplitTable({ report }) {
               Dons vol.
               <div style={{ fontWeight: 400, color: "var(--ink-soft)", fontSize: 10.5 }}>{fcfa(F.dv)}</div>
             </td>
-            <td style={cell}>—</td><td style={cell}>—</td><td style={cell}>{fcfa(F.dv)}</td><td style={cell}>—</td>
+            <td style={cell}>{fcfa(F.dv)}<div style={{ color: "var(--ink-soft)", fontSize: 10 }}>100%</div></td>
+            {["district", "coordination", "afrique"].map(k => (
+              <td key={k} style={cell}>{fcfa(0)}<div style={{ color: "var(--ink-soft)", fontSize: 10 }}>0%</div></td>
+            ))}
           </tr>
-          <tr style={{ fontWeight: 700, color: "var(--primary)" }}>
-            <td style={{ ...cell, textAlign: "left", borderBottom: "none" }}>Total<div style={{ fontSize: 10.5 }}>{fcfa(F.totaux.total)}</div></td>
-            {FIN_DESTS.map(d => <td key={d.key} style={{ ...cell, borderBottom: "none" }}>{fcfa(F.totaux[d.key])}</td>)}
+          <tr style={{ fontWeight: 700, color: "var(--primary)", background: "#F4F5EE" }}>
+            <td style={{ ...cell, textAlign: "left" }}>Total G<div style={{ fontSize: 10.5 }}>{fcfa(F.totaux.total)}</div></td>
+            {FIN_DESTS.map(d => <td key={d.key} style={cell}>{fcfa(F.totaux[d.key])}</td>)}
+          </tr>
+          <tr style={{ color: "var(--accent-dark)" }}>
+            <td style={{ ...cell, textAlign: "left", fontWeight: 700 }}>Convention<div style={{ fontWeight: 400, fontSize: 10.5 }}>{fcfa(F.convention.total)}</div></td>
+            {FIN_DESTS.map(d => (
+              <td key={d.key} style={cell}>{fcfa(F.convention[d.key])}<div style={{ fontSize: 10 }}>{CONVENTION_PARTS[d.key]}% du total</div></td>
+            ))}
+          </tr>
+          <tr style={{ fontWeight: 700, color: "#1F7A5C" }}>
+            <td style={{ ...cell, textAlign: "left", borderBottom: "none" }}>Reste<div style={{ fontWeight: 400, fontSize: 10.5 }}>après Convention</div></td>
+            {FIN_DESTS.map(d => <td key={d.key} style={{ ...cell, borderBottom: "none" }}>{fcfa(F.apresConvention[d.key])}</td>)}
           </tr>
         </tbody>
       </table>
@@ -4303,7 +4334,7 @@ function FinanceForm({ entry, financeReports, onSave, onDelete, onClose }) {
       {moneyInput("dimes", "Dîmes")}
       {moneyInput("bp", "BP")}
 
-      <Field label="Dons volontaires (DV) — ils vont à la Coordination">
+      <Field label="Dons volontaires (DV) — ils restent à 100 % à l'Assemblée">
         <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
           {f.dons.map((d, i) => (
             <div key={i} style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -4369,7 +4400,11 @@ function FinanceRecap({ regions, leadership, financeReports, unlocked, onUnlock,
 
   const list = financeReports.filter(r => r.semaine === current).sort((a, b) => (a.assemblee || "").localeCompare(b.assemblee || ""));
   const T = { assemblee: 0, district: 0, coordination: 0, afrique: 0, total: 0 };
-  list.forEach(r => { const t = computeFinance(r).totaux; Object.keys(T).forEach(k => { T[k] += t[k]; }); });
+  const C = { assemblee: 0, district: 0, coordination: 0, afrique: 0, total: 0 };
+  list.forEach(r => {
+    const F = computeFinance(r);
+    Object.keys(T).forEach(k => { T[k] += F.totaux[k]; C[k] += F.convention[k]; });
+  });
   const toutes = flattenAssemblees(regions);
   const deposees = new Set(list.map(r => r.assemblee));
   const manquantes = toutes.filter(a => !deposees.has(a));
@@ -4383,6 +4418,9 @@ function FinanceRecap({ regions, leadership, financeReports, unlocked, onUnlock,
     "",
     ...FIN_DESTS.map(d => `🟢 TOTAL ${d.label} : ${fcfa(T[d.key])}`),
     `🟢 TOTAL GÉNÉRAL : ${fcfa(T.total)}`,
+    "",
+    `🟡 CONVENTION : ${fcfa(C.total)}`,
+    ...FIN_DESTS.map(d => `${d.label} (${CONVENTION_PARTS[d.key]}%) : ${fcfa(C[d.key])}`),
     ...(manquantes.length ? ["", `Rapports manquants : ${manquantes.join(", ")}`] : []),
     "", "Mission Parole de Vie Burkina",
   ].join("\n");
@@ -4403,13 +4441,14 @@ function FinanceRecap({ regions, leadership, financeReports, unlocked, onUnlock,
           <div style={{ background: "var(--primary)", color: "#fff", borderRadius: 14, padding: "14px 16px", marginBottom: 10 }}>
             <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em", opacity: .8, fontWeight: 700 }}>Total reçu cette semaine</div>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 700, marginTop: 2 }}>{fcfa(T.total)}</div>
-            <div style={{ fontSize: 12, opacity: .85, marginTop: 2 }}>{list.length} rapport{list.length > 1 ? "s" : ""} sur {toutes.length} assemblées</div>
+            <div style={{ fontSize: 12, opacity: .85, marginTop: 2 }}>{list.length} rapport{list.length > 1 ? "s" : ""} sur {toutes.length} assemblées · Convention : {fcfa(C.total)}</div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
             {FIN_DESTS.map(d => (
               <div key={d.key} style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 11, padding: "9px 11px" }}>
                 <div style={{ fontSize: 10.5, textTransform: "uppercase", color: "var(--ink-soft)", fontWeight: 700 }}>{d.label}</div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: "var(--ink)", fontVariantNumeric: "tabular-nums" }}>{fcfa(T[d.key])}</div>
+                <div style={{ fontSize: 11, color: "var(--accent-dark)", marginTop: 2 }}>Convention : {fcfa(C[d.key])}</div>
               </div>
             ))}
           </div>

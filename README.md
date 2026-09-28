@@ -12,8 +12,12 @@ Application du département Mission et Formation (React + Vite + Firebase, insta
 |---|---|---|---|---|
 | Offrandes | 70 % | 10 % | 10 % | 10 % |
 | Dîmes | 20 % | 25 % | 35 % | 20 % |
-| BP | 20 % | 25 % | 35 % | 20 % |
-| Dons volontaires | — | — | 100 % | — |
+| Besoin présent (BP) | 20 % | 25 % | 35 % | 20 % |
+| Dons volontaires | 100 % | 0 % | 0 % | 0 % |
+| **Total G** | X | Y | Z | A |
+| **Convention** | 10 % de X | 10 % de Y | 20 % de Z | 0 % de A |
+
+L'app affiche aussi le reste de chaque niveau après la part Convention.
 
 ## Données
 Toutes les données sont dans Firestore, collection `mpv-data` (voir `firestore.rules`).
