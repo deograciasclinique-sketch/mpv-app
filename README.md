@@ -47,9 +47,17 @@ Bouton **MENU** en haut à droite (et raccourci « Partager & aide » sur l'accu
 - **Guide d'utilisation** de chaque onglet, avec un bouton pour l'ouvrir ;
 - **Codes d'accès** et **bon à savoir**.
 
+## Réunions & annonces
+Onglet **Messages → Réunions & annonces** (raccourci « Réunions » sur l'accueil) :
+- annoncer une **réunion**, un **programme** (repris d'un séminaire existant) ou une **annonce** : titre, date, heure, lieu, ordre du jour ;
+- **visioconférence** : un lien Jitsi Meet unique est créé automatiquement (ou coller un lien Google Meet / Zoom) ; bouton « Rejoindre la visio » dans la liste et sur l'accueil ;
+- **destinataires** : tout le monde, chefs de département, un ou plusieurs départements, une fonction, une assemblée, personne par personne, ou invités hors répertoire ;
+- **envoi WhatsApp** : un bouton « Envoyer à … » par personne, message personnalisé, l'app retient qui a été prévenu ; aussi « Dans un groupe WhatsApp » et « Copier le message ».
+Chaque fiche du Répertoire peut être rattachée à un département de la coordination (champ facultatif) pour inviter tout un département d'un geste.
+
 ## Données
 Toutes les données sont dans Firestore, collection `mpv-data` (voir `firestore.rules`).
-Les nouveaux documents sont `finance-reports`, `activity-reports`, `expense-reports`, `dept-plans`, `dept-bilans` et `dept-codes`.
+Les nouveaux documents sont `finance-reports`, `activity-reports`, `expense-reports`, `dept-plans`, `dept-bilans`, `dept-codes` et `annonces`.
 
 Les codes d'accès de l'onglet Direction sont masqués tant que le code du chef du département n'est pas saisi.
 

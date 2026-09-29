@@ -5,7 +5,7 @@ import {
   ClipboardList, FileText, BarChart3, Image as ImageIcon, Video, Paperclip,
   BookOpen, Lock, Unlock, Target, CheckCircle2, AlertTriangle, ExternalLink,
   ChevronLeft, Building2, Navigation, Share2, XCircle, Wallet, ShieldCheck, Filter, Globe, Eye, EyeOff, Camera,
-  Menu, QrCode, Smartphone
+  Menu, QrCode, Smartphone, Megaphone, UserPlus, CheckSquare, Square, RefreshCw
 } from "lucide-react";
 import QRCode from "qrcode";
 import { loadKey, saveKey, updateKey } from "./firebase.js";
@@ -850,6 +850,7 @@ export default function App() {
   const [deptPlans, setDeptPlans] = useState([]);
   const [deptBilans, setDeptBilans] = useState([]);
   const [deptCodes, setDeptCodes] = useState({});
+  const [annonces, setAnnonces] = useState([]);
   const [coordUnlocked, setCoordUnlocked] = useState(false);
   const [coordNatUnlocked, setCoordNatUnlocked] = useState(false);
   const [toast, setToast] = useState(null);
@@ -880,7 +881,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [r, p, s, l, wp, sr, cs, dh, ap, br, mi, pa, ph, fr, ar, er, dpl, dbi, dco] = await Promise.all([
+      const [r, p, s, l, wp, sr, cs, dh, ap, br, mi, pa, ph, fr, ar, er, dpl, dbi, dco, ann] = await Promise.all([
         loadKey("regions-assemblies", REGIONS_DEFAULT),
         loadKey("pastors-directory", PASTORS_DEFAULT),
         loadKey("seminars-list", []),
@@ -900,6 +901,7 @@ export default function App() {
         loadKey("dept-plans", []),
         loadKey("dept-bilans", []),
         loadKey("dept-codes", {}),
+        loadKey("annonces", []),
       ]);
       const pWithPhotos = p.map(x => ({ ...x, photo: (ph && ph[x.id]) || x.photo || null }));
       setRegions(r); setPastors(pWithPhotos); setPastorsPhotos(ph || {}); setSeminars(s); setLeadership(l);
@@ -907,7 +909,7 @@ export default function App() {
       setCoordSeminars(cs); setDeptHeads(dh); setActionPlans(ap);
       setBibleReports(br); setMissionaries(mi); setPlansAnnuels(pa);
       setFinanceReports(fr); setActivityReports(ar); setExpenseReports(er);
-      setDeptPlans(dpl); setDeptBilans(dbi); setDeptCodes(dco || {});
+      setDeptPlans(dpl); setDeptBilans(dbi); setDeptCodes(dco || {}); setAnnonces(ann || []);
       setLoading(false);
     })();
   }, []);
@@ -972,6 +974,8 @@ export default function App() {
   const deleteDeptPlan = (entry) => upsertShared("dept-plans", setDeptPlans, entry, true);
   const saveDeptBilan = (entry) => upsertShared("dept-bilans", setDeptBilans, entry, false);
   const deleteDeptBilan = (entry) => upsertShared("dept-bilans", setDeptBilans, entry, true);
+  const saveAnnonce = (entry) => upsertShared("annonces", setAnnonces, entry, false);
+  const deleteAnnonce = (entry) => upsertShared("annonces", setAnnonces, entry, true);
   async function saveDeptCode(dept, code) {
     const next = await updateKey("dept-codes", {}, (cur) => ({ ...(cur || {}), [dept]: code }));
     if (next) { setDeptCodes(next); return true; }
@@ -1001,7 +1005,7 @@ export default function App() {
       <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 90px" }}>
         {tab === "aide" && <MenuTab setTab={setTab} showToast={showToast} />}
         {tab === "accueil" && (
-          <Accueil seminars={seminars} coordSeminars={coordSeminars} pastors={pastors} regions={regions} setTab={setTab} />
+          <Accueil seminars={seminars} coordSeminars={coordSeminars} pastors={pastors} regions={regions} setTab={setTab} annonces={annonces} />
         )}
         {tab === "seminaires" && (
           <SeminairesTab
@@ -1052,7 +1056,10 @@ export default function App() {
           />
         )}
         {tab === "messagerie" && (
-          <Messagerie seminars={seminars} pastors={pastors} />
+          <Messagerie
+            seminars={seminars} coordSeminars={coordSeminars} pastors={pastors} deptHeads={deptHeads} missionaries={missionaries} regions={regions}
+            annonces={annonces} saveAnnonce={saveAnnonce} deleteAnnonce={deleteAnnonce} showToast={showToast}
+          />
         )}
         {tab === "coordination" && (
           <Coordination
@@ -1224,8 +1231,11 @@ const GUIDE = [
   },
   {
     tab: "messagerie", icon: MessageCircle, titre: "Messages",
-    resume: "Prévenir les pasteurs et prédicateurs par WhatsApp.",
+    resume: "Réunions, annonces et visioconférences, envoyées par WhatsApp.",
     points: [
+      "« Réunions & annonces » : « Nouvelle réunion ou annonce », remplissez titre, date, heure et ordre du jour, puis choisissez qui prévenir (tout le monde, un ou plusieurs départements, une fonction, une assemblée, ou personne par personne).",
+      "Pour une réunion à distance, choisissez « Visioconférence » : un lien de réunion est créé tout seul et ajouté au message. Le jour venu, chacun touche « Rejoindre la visio ».",
+      "Envoi : touchez « Envoyer à … » ; WhatsApp s'ouvre avec le message personnalisé, vous appuyez sur Envoyer, revenez dans l'app et passez à la personne suivante. L'app retient qui a déjà été prévenu.",
       "« Par séminaire » : envoie la date, l'heure et le thème aux prédicateurs affectés.",
       "« Par catégorie » : écrire à tous les pasteurs, prédicateurs ou aspirants d'un coup.",
     ],
@@ -1568,7 +1578,7 @@ function AssembleeSelect({ regions, value, onChange, style }) {
 /*  ACCUEIL                                                            */
 /* ------------------------------------------------------------------ */
 
-function Accueil({ seminars, coordSeminars, pastors, regions, setTab }) {
+function Accueil({ seminars, coordSeminars, pastors, regions, setTab, annonces }) {
   const tous = [
     ...seminars.map(s => ({ ...s, _niveau: "Assemblée" })),
     ...(coordSeminars || []).map(s => ({ ...s, _niveau: "Coordination nationale" })),
@@ -1588,6 +1598,7 @@ function Accueil({ seminars, coordSeminars, pastors, regions, setTab }) {
     { id: "bible", label: "Bible", icon: BookOpen },
     { id: "rapport", label: "Rapport", icon: FileText },
     { id: "finances", label: "Finances", icon: Wallet },
+    { id: "messagerie", label: "Réunions", icon: Megaphone },
     { id: "aide", label: "Partager & aide", icon: Share2 },
   ];
 
@@ -1622,6 +1633,8 @@ function Accueil({ seminars, coordSeminars, pastors, regions, setTab }) {
       </div>
 
       <VerseOfTheDay />
+
+      <ProchainesReunions annonces={annonces} setTab={setTab} />
 
       <SectionTitle sub={`${pastors.length} pasteurs/prédicateurs · ${tous.length} programmes · ${totalAssemblees} assemblées`}>
         Tableau de bord
@@ -3143,6 +3156,7 @@ function PastorForm({ pastor, regions, onSave, onDelete, onClose }) {
   const [telephone, setTelephone] = useState(pastor.telephone || "");
   const [assemblee, setAssemblee] = useState(pastor.assemblee || "");
   const [fonction, setFonction] = useState(pastor.fonction || "Pasteur");
+  const [departementCoord, setDepartementCoord] = useState(pastor.departementCoord || "");
   const [photo, setPhoto] = useState(pastor.photo || null);
   const [uploading, setUploading] = useState(false);
 
@@ -3161,7 +3175,7 @@ function PastorForm({ pastor, regions, onSave, onDelete, onClose }) {
   function handleSubmit() {
     if (!nom.trim()) { alert("Merci de renseigner le nom."); return; }
     if (!photo) { alert("Merci d'ajouter une photo (prise directement ou depuis la galerie) — elle est obligatoire pour chaque enregistrement."); return; }
-    onSave({ id: pastor.id || uid(), nom: nom.trim(), telephone: telephone.trim(), assemblee, fonction, photo });
+    onSave({ id: pastor.id || uid(), nom: nom.trim(), telephone: telephone.trim(), assemblee, fonction, departementCoord, photo });
   }
 
   return (
@@ -3206,6 +3220,13 @@ function PastorForm({ pastor, regions, onSave, onDelete, onClose }) {
         <select style={inputStyle} value={fonction} onChange={e => setFonction(e.target.value)}>
           {FONCTIONS.map(f => <option key={f} value={f}>{f}</option>)}
         </select>
+      </Field>
+      <Field label="Département de la coordination (facultatif)">
+        <select style={inputStyle} value={departementCoord} onChange={e => setDepartementCoord(e.target.value)}>
+          <option value="">— Aucun —</option>
+          {DEPARTEMENTS_COORD.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <div style={{ fontSize: 11, color: "var(--ink-soft)", marginTop: 5 }}>Permet d'inviter tout un département à une réunion d'un seul geste.</div>
       </Field>
       <PrimaryButton onClick={handleSubmit} icon={Check} full>Enregistrer</PrimaryButton>
       {!isNew && (
@@ -3539,18 +3560,525 @@ function AssemblyForm({ assembly, onSave, onDelete, onClose }) {
 /*  MESSAGERIE                                                         */
 /* ------------------------------------------------------------------ */
 
-function Messagerie({ seminars, pastors }) {
-  const [mode, setMode] = useState("seminaire");
+/* ------------------------------------------------------------------ */
+/*  RÉUNIONS & ANNONCES (WhatsApp + visioconférence)                    */
+/* ------------------------------------------------------------------ */
+
+const ANNONCE_TYPES = ["Réunion", "Annonce", "Programme"];
+const ANNONCE_MODES = [
+  { value: "presentiel", label: "Sur place" },
+  { value: "visio", label: "Visioconférence" },
+  { value: "mixte", label: "Les deux" },
+];
+
+function telDigits(t) { return (t || "").replace(/\D/g, ""); }
+
+function matchDept(text, dept) {
+  const norm = (x) => (x || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const key = norm(dept).split(" ")[0];
+  return !!text && norm(text).includes(key);
+}
+
+// Tous les contacts de l'app, sans doublon de numéro.
+function buildContacts(pastors, deptHeads, missionaries) {
+  const out = [];
+  const seen = {};
+  const add = (c) => {
+    const d = telDigits(c.tel).slice(-8);
+    if (d && seen[d]) {
+      const prev = seen[d];
+      if (c.departement && !prev.departements.includes(c.departement)) prev.departements.push(c.departement);
+      if (c.chef) prev.chef = true;
+      if (!prev.assemblee && c.assemblee) prev.assemblee = c.assemblee;
+      return;
+    }
+    const item = { ...c, departements: c.departement ? [c.departement] : [] };
+    delete item.departement;
+    out.push(item);
+    if (d) seen[d] = item;
+  };
+  (deptHeads || []).forEach(h => add({
+    key: "d-" + h.id, nom: h.nom, tel: h.contact, groupe: "Chef de département", chef: true,
+    departement: DEPARTEMENTS_COORD.find(d => matchDept(h.departement, d)) || "",
+  }));
+  (pastors || []).forEach(p => add({
+    key: "p-" + p.id, nom: p.nom, tel: p.telephone, groupe: p.fonction || "Pasteur",
+    assemblee: p.assemblee || "", departement: p.departementCoord || "",
+  }));
+  (missionaries || []).forEach(m => add({ key: "m-" + m.id, nom: m.nom, tel: m.contact, groupe: "Missionnaire", assemblee: m.pays || "" }));
+  return out;
+}
+
+function newVisioLink(titre) {
+  const slug = (titre || "reunion").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9]+/g, "").slice(0, 24) || "Reunion";
+  const rnd = Math.random().toString(36).slice(2, 8).toUpperCase();
+  return `https://meet.jit.si/MPV-${slug}-${rnd}`;
+}
+
+function annonceDateTexte(a) {
+  if (!a.date) return "";
+  return `${formatDateLong(a.date)}${a.heure ? ` à ${a.heure.replace(":", "h")}` : ""}`;
+}
+
+function annonceMessage(a, nom) {
+  const L = [];
+  const icone = a.type === "Réunion" ? "📢" : a.type === "Programme" ? "🗓️" : "📣";
+  L.push(`${icone} *${(a.type || "Annonce").toUpperCase()}* — Mission Parole de Vie Burkina`, "");
+  L.push(nom ? `Bonjour ${nom},` : "Bonjour à tous,", "");
+  L.push(`*${a.titre}*`);
+  if (a.date) L.push(`📅 ${annonceDateTexte(a)}`);
+  if (a.duree) L.push(`⏱️ Durée prévue : ${a.duree}`);
+  if (a.type === "Réunion" && a.mode !== "visio" && a.lieu) L.push(`📍 Lieu : ${a.lieu}`);
+  if (a.type !== "Réunion" && a.lieu) L.push(`📍 Lieu : ${a.lieu}`);
+  if (a.type === "Réunion" && a.mode !== "presentiel" && a.lienVisio) {
+    L.push("", `💻 *Visioconférence* : ${a.lienVisio}`, "À l'heure de la réunion, touchez le lien pour rejoindre (sur téléphone, l'application Jitsi Meet peut être proposée).");
+  }
+  if (a.contenu) L.push("", a.type === "Réunion" ? "*Ordre du jour :*" : "", a.contenu);
+  L.push("");
+  if (a.organisateur) L.push(`Organisé par : ${a.organisateur}`);
+  if (a.type === "Réunion") L.push("Merci de confirmer votre présence en répondant à ce message.");
+  L.push("", "Département Mission et Formation");
+  return L.filter((x, i, arr) => !(x === "" && arr[i - 1] === "")).join("\n");
+}
+
+function RecipientPicker({ contacts, regions, selected, onChange, invites, onInvites }) {
+  const [q, setQ] = useState("");
+  const [ajout, setAjout] = useState({ nom: "", tel: "" });
+  const sel = new Set(selected);
+  const toggle = (k) => { const n = new Set(sel); n.has(k) ? n.delete(k) : n.add(k); onChange([...n]); };
+  const addGroup = (list) => { const n = new Set(sel); const allIn = list.every(c => n.has(c.key)); list.forEach(c => allIn ? n.delete(c.key) : n.add(c.key)); onChange([...n]); };
+
+  const groupes = [...new Set(contacts.map(c => c.groupe))].filter(Boolean);
+  const assemblees = flattenAssemblees(regions).filter(a => contacts.some(c => c.assemblee === a));
+  const filtered = contacts.filter(c => !q || `${c.nom} ${c.groupe} ${c.assemblee} ${c.departements.join(" ")}`.toLowerCase().includes(q.toLowerCase()));
+
+  const chip = (label, list, key) => {
+    const allIn = list.length > 0 && list.every(c => sel.has(c.key));
+    return (
+      <button key={key || label} onClick={() => list.length && addGroup(list)} disabled={!list.length} style={{
+        padding: "5px 10px", borderRadius: 99, fontSize: 11.5, fontWeight: 700, opacity: list.length ? 1 : .45,
+        border: `1.5px solid ${allIn ? "var(--primary)" : "var(--border)"}`,
+        background: allIn ? "var(--primary)" : "#fff", color: allIn ? "#fff" : "var(--ink-soft)"
+      }}>{label} ({list.length})</button>
+    );
+  };
+
   return (
     <div>
-      <SectionTitle sub="Envoyer une information par WhatsApp, par séminaire ou par catégorie">Messagerie</SectionTitle>
+      <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginBottom: 6 }}>Sélection rapide (toucher à nouveau pour retirer)</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+        {chip("Tout le monde", contacts, "all")}
+        {chip("Chefs de département", contacts.filter(c => c.chef), "chefs")}
+      </div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent-dark)", textTransform: "uppercase", marginBottom: 5 }}>Départements</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+        {DEPARTEMENTS_COORD.map(d => chip(d, contacts.filter(c => c.departements.includes(d)), "dep-" + d))}
+      </div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent-dark)", textTransform: "uppercase", marginBottom: 5 }}>Fonctions</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+        {groupes.map(g => chip(g, contacts.filter(c => c.groupe === g), "g-" + g))}
+      </div>
+      {assemblees.length > 0 && (
+        <select style={{ ...inputStyle, fontSize: 13, marginBottom: 10 }} value="" onChange={e => e.target.value && addGroup(contacts.filter(c => c.assemblee === e.target.value))}>
+          <option value="">+ Ajouter toute une assemblée…</option>
+          {assemblees.map(a => <option key={a} value={a}>{a} ({contacts.filter(c => c.assemblee === a).length})</option>)}
+        </select>
+      )}
+
+      <div style={{ position: "relative", marginBottom: 8 }}>
+        <Search size={15} color="var(--ink-soft)" style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)" }} />
+        <input style={{ ...inputStyle, paddingLeft: 34, fontSize: 13.5 }} value={q} onChange={e => setQ(e.target.value)} placeholder="Chercher un nom, une assemblée…" />
+      </div>
+      <div style={{ maxHeight: 260, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 11, background: "#fff" }}>
+        {filtered.length === 0 ? (
+          <div style={{ padding: 14, fontSize: 12.5, color: "var(--ink-soft)" }}>Aucun contact. Ajoutez des personnes dans le Répertoire ou ci-dessous.</div>
+        ) : filtered.map(c => {
+          const on = sel.has(c.key);
+          return (
+            <button key={c.key} onClick={() => toggle(c.key)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "9px 11px", borderBottom: "1px solid var(--border)", textAlign: "left", background: on ? "#EEF1F8" : "#fff" }}>
+              {on ? <CheckSquare size={18} color="var(--primary)" /> : <Square size={18} color="var(--ink-soft)" />}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{c.nom}</div>
+                <div style={{ fontSize: 11, color: "var(--ink-soft)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {[c.groupe, c.assemblee, ...c.departements].filter(Boolean).join(" · ")}
+                </div>
+              </div>
+              {!telDigits(c.tel) && <span style={{ fontSize: 10.5, color: "var(--danger)", fontWeight: 700 }}>Sans n°</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ marginTop: 10 }}>
+        <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginBottom: 5 }}>Inviter une autre personne (hors répertoire)</div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <input style={{ ...inputStyle, flex: 1.3, fontSize: 13 }} value={ajout.nom} onChange={e => setAjout({ ...ajout, nom: e.target.value })} placeholder="Nom" />
+          <input style={{ ...inputStyle, flex: 1, fontSize: 13 }} inputMode="tel" value={ajout.tel} onChange={e => setAjout({ ...ajout, tel: e.target.value })} placeholder="Téléphone" />
+          <button onClick={() => {
+            if (!ajout.nom.trim() || !telDigits(ajout.tel)) return;
+            onInvites([...(invites || []), { key: "x-" + uid(), nom: ajout.nom.trim(), tel: ajout.tel.trim(), groupe: "Invité", departements: [] }]);
+            setAjout({ nom: "", tel: "" });
+          }} aria-label="Ajouter" style={{ background: "var(--primary)", color: "#fff", borderRadius: 9, padding: "0 12px" }}><UserPlus size={16} /></button>
+        </div>
+        {(invites || []).length > 0 && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+            {invites.map(i => (
+              <span key={i.key} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, background: "var(--accent-soft)", color: "var(--accent-dark)", borderRadius: 99, padding: "4px 6px 4px 10px", fontWeight: 600 }}>
+                {i.nom}
+                <button onClick={() => onInvites(invites.filter(x => x.key !== i.key))} aria-label={`Retirer ${i.nom}`} style={{ display: "flex" }}><X size={13} color="var(--accent-dark)" /></button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AnnonceForm({ entry, contacts, regions, seminars, coordSeminars, onSave, onDelete, onClose }) {
+  const isNew = !entry.id;
+  const [a, setA] = useState(() => ({
+    type: entry.type || "Réunion", titre: entry.titre || "", date: entry.date || "", heure: entry.heure || "",
+    duree: entry.duree || "", lieu: entry.lieu || "", mode: entry.mode || "visio",
+    lienVisio: entry.lienVisio || "", contenu: entry.contenu || "", organisateur: entry.organisateur || "",
+  }));
+  const [destinataires, setDestinataires] = useState(() => (entry.destinataires || []).filter(d => !d.key.startsWith("x-")).map(d => d.key));
+  const [invites, setInvites] = useState(() => (entry.destinataires || []).filter(d => d.key.startsWith("x-")));
+  const [error, setError] = useState("");
+  const set = (k, v) => { setA(p => ({ ...p, [k]: v })); setError(""); };
+  const avecVisio = a.type === "Réunion" && a.mode !== "presentiel";
+
+  useEffect(() => {
+    if (avecVisio && !a.lienVisio) setA(p => ({ ...p, lienVisio: newVisioLink(p.titre) }));
+  }, [avecVisio]);
+
+  const programmes = [...(seminars || []), ...(coordSeminars || [])]
+    .filter(s => { const d = daysUntil(s.date); return d === null || d >= -1; })
+    .sort((x, y) => (x.date || "").localeCompare(y.date || ""));
+
+  function reprendre(id) {
+    const s = programmes.find(x => x.id === id);
+    if (!s) return;
+    setA(p => ({ ...p, titre: `${s.type || "Séminaire"} — ${s.theme || "sans thème"}${s.assemblee ? ` (${s.assemblee})` : ""}`, date: s.date || p.date, lieu: s.lieu || s.assemblee || p.lieu }));
+  }
+
+  function submit() {
+    if (!a.titre.trim()) { setError("Indiquez le titre."); return; }
+    if (!a.date) { setError("Indiquez la date."); return; }
+    const list = [...contacts.filter(c => destinataires.includes(c.key)), ...invites]
+      .map(c => ({ key: c.key, nom: c.nom, tel: c.tel || "", groupe: c.groupe || "" }));
+    if (!list.length) { setError("Choisissez au moins une personne à prévenir."); return; }
+    onSave({
+      ...entry, id: entry.id || uid(), ...a, titre: a.titre.trim(), lieu: a.lieu.trim(), contenu: a.contenu.trim(),
+      organisateur: a.organisateur.trim(), lienVisio: avecVisio ? a.lienVisio.trim() : "",
+      destinataires: list, envois: entry.envois || {},
+      creeLe: entry.creeLe || new Date().toISOString(), modifieLe: new Date().toISOString(),
+    });
+  }
+
+  const nbSel = destinataires.length + invites.length;
+  return (
+    <ModalShell title={isNew ? "Nouvelle réunion ou annonce" : "Modifier"} onClose={onClose}>
+      <Field label="Type"><ChipPicker options={ANNONCE_TYPES} value={a.type} onChange={v => set("type", v)} small /></Field>
+
+      {a.type === "Programme" && programmes.length > 0 && (
+        <Field label="Reprendre un programme déjà enregistré (facultatif)">
+          <select style={inputStyle} value="" onChange={e => reprendre(e.target.value)}>
+            <option value="">— Choisir un séminaire ou programme —</option>
+            {programmes.map(s => <option key={s.id} value={s.id}>{s.date ? formatDateLong(s.date) + " · " : ""}{s.type || "Séminaire"} — {s.theme || "sans thème"}{s.assemblee ? ` (${s.assemblee})` : ""}</option>)}
+          </select>
+        </Field>
+      )}
+
+      <Field label="Titre"><input style={inputStyle} value={a.titre} onChange={e => set("titre", e.target.value)} placeholder={a.type === "Réunion" ? "Ex. Réunion des chefs de département" : "Ex. Convention nationale 2027"} /></Field>
+      <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ flex: 1.4 }}><Field label="Date"><input type="date" style={inputStyle} value={a.date} onChange={e => set("date", e.target.value)} /></Field></div>
+        <div style={{ flex: 1 }}><Field label="Heure"><input type="time" style={inputStyle} value={a.heure} onChange={e => set("heure", e.target.value)} /></Field></div>
+      </div>
+
+      {a.type === "Réunion" && (
+        <>
+          <Field label="Comment se tient la réunion ?"><ChipPicker options={ANNONCE_MODES} value={a.mode} onChange={v => set("mode", v)} small /></Field>
+          <Field label="Durée prévue (facultatif)"><input style={inputStyle} value={a.duree} onChange={e => set("duree", e.target.value)} placeholder="Ex. 1 h 30" /></Field>
+        </>
+      )}
+      {(a.type !== "Réunion" || a.mode !== "visio") && (
+        <Field label="Lieu"><input style={inputStyle} value={a.lieu} onChange={e => set("lieu", e.target.value)} placeholder="Ex. Temple de Pissy, Ouagadougou" /></Field>
+      )}
+
+      {avecVisio && (
+        <div style={{ background: "#EEF1F8", borderRadius: 11, padding: "11px 12px", marginBottom: 13 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: "var(--primary)", marginBottom: 7 }}>
+            <Video size={14} /> Lien de la visioconférence
+          </div>
+          <input style={{ ...inputStyle, fontSize: 13 }} value={a.lienVisio} onChange={e => set("lienVisio", e.target.value)} />
+          <div style={{ display: "flex", gap: 8, marginTop: 7, alignItems: "center", flexWrap: "wrap" }}>
+            <button onClick={() => set("lienVisio", newVisioLink(a.titre))} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 700, color: "var(--primary)" }}>
+              <RefreshCw size={13} /> Nouveau lien
+            </button>
+            <span style={{ fontSize: 11, color: "var(--ink-soft)", lineHeight: 1.4 }}>
+              Salle Jitsi Meet gratuite créée pour cette réunion. Vous pouvez aussi coller un lien Google Meet ou Zoom.
+            </span>
+          </div>
+        </div>
+      )}
+
+      <Field label={a.type === "Réunion" ? "Ordre du jour" : "Message"}>
+        <textarea style={{ ...inputStyle, minHeight: 90, resize: "vertical" }} value={a.contenu} onChange={e => set("contenu", e.target.value)} placeholder={a.type === "Réunion" ? "1. Prière d'ouverture\n2. Bilan du trimestre\n3. Divers" : "Les détails à communiquer"} />
+      </Field>
+      <Field label="Organisé par"><input style={inputStyle} value={a.organisateur} onChange={e => set("organisateur", e.target.value)} placeholder="Ex. Chef du département Mission et Formation" /></Field>
+
+      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 13, marginTop: 4, marginBottom: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 700, color: "var(--primary)" }}>Qui prévenir ?</div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: nbSel ? "#1F7A5C" : "var(--ink-soft)" }}>{nbSel} personne{nbSel > 1 ? "s" : ""}</div>
+        </div>
+        <RecipientPicker contacts={contacts} regions={regions} selected={destinataires} onChange={setDestinataires} invites={invites} onInvites={setInvites} />
+      </div>
+
+      {error && <div style={{ fontSize: 12.5, color: "var(--danger)", fontWeight: 600, marginBottom: 10 }}>{error}</div>}
+      <PrimaryButton full icon={Check} onClick={submit}>{isNew ? "Enregistrer et passer à l'envoi" : "Enregistrer"}</PrimaryButton>
+      {!isNew && (
+        <button onClick={() => { if (confirm("Supprimer cette réunion ou annonce ?")) onDelete(entry); }} style={{
+          width: "100%", marginTop: 10, color: "var(--danger)", fontSize: 13, fontWeight: 600,
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: 8
+        }}><Trash2 size={14} /> Supprimer</button>
+      )}
+    </ModalShell>
+  );
+}
+
+function AnnonceEnvoi({ annonce, onMarkSent, onEdit, onClose, showToast }) {
+  const envois = annonce.envois || {};
+  const avecTel = annonce.destinataires.filter(d => telDigits(d.tel));
+  const sansTel = annonce.destinataires.filter(d => !telDigits(d.tel));
+  const restants = avecTel.filter(d => !envois[d.key]);
+  const suivant = restants[0];
+  const faits = avecTel.length - restants.length;
+  const pct = avecTel.length ? Math.round(faits / avecTel.length * 100) : 0;
+  const visio = annonce.type === "Réunion" && annonce.mode !== "presentiel" && annonce.lienVisio;
+
+  async function copier(txt) {
+    try { await navigator.clipboard.writeText(txt); showToast("Message copié"); } catch (e) { showToast("Copie impossible"); }
+  }
+
+  return (
+    <ModalShell title="Prévenir par WhatsApp" onClose={onClose}>
+      <div style={{ background: "#F4F5EE", borderRadius: 11, padding: "10px 12px", marginBottom: 12 }}>
+        <div style={{ fontSize: 14, fontWeight: 700 }}>{annonce.titre}</div>
+        <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 2 }}>{annonceDateTexte(annonce)}{visio ? " · Visioconférence" : ""}</div>
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, fontWeight: 700, marginBottom: 5 }}>
+        <span>{faits} / {avecTel.length} prévenus</span>
+        <span style={{ color: pct === 100 ? "#1F7A5C" : "var(--ink-soft)" }}>{pct === 100 ? "Tout le monde est prévenu" : `${restants.length} restant${restants.length > 1 ? "s" : ""}`}</span>
+      </div>
+      <div style={{ height: 8, background: "var(--border)", borderRadius: 99, overflow: "hidden", marginBottom: 14 }}>
+        <div style={{ width: `${pct}%`, height: "100%", background: "#25D366", transition: "width .3s" }} />
+      </div>
+
+      {suivant ? (
+        <a href={whatsappLink(suivant.tel, annonceMessage(annonce, suivant.nom))} target="_blank" rel="noopener noreferrer"
+          onClick={() => onMarkSent(suivant.key)} style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#25D366", color: "#fff",
+            borderRadius: 12, padding: "14px 10px", fontSize: 15, fontWeight: 800, textDecoration: "none", marginBottom: 6, textAlign: "center"
+          }}>
+          <Send size={18} /> Envoyer à {suivant.nom}
+        </a>
+      ) : avecTel.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#E3F1EA", color: "#1F7A5C", borderRadius: 12, padding: "12px", fontWeight: 700, marginBottom: 6 }}>
+          <CheckCircle2 size={17} /> Toutes les personnes ont été prévenues
+        </div>
+      )}
+      <div style={{ fontSize: 11.5, color: "var(--ink-soft)", textAlign: "center", marginBottom: 14, lineHeight: 1.45 }}>
+        Le message personnalisé s'ouvre dans WhatsApp : appuyez sur Envoyer, puis revenez dans l'app pour la personne suivante.
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
+        <a href={shareWhatsappLink(annonceMessage(annonce, ""))} target="_blank" rel="noopener noreferrer" style={{
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 5, border: "1.5px solid #25D366", color: "#1A9E4B",
+          borderRadius: 10, padding: "9px 4px", fontSize: 12, fontWeight: 700, textDecoration: "none", textAlign: "center"
+        }}><Users size={14} /> Dans un groupe WhatsApp</a>
+        <button onClick={() => copier(annonceMessage(annonce, ""))} style={{
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 5, border: "1.5px solid var(--border)", color: "var(--ink)",
+          borderRadius: 10, padding: "9px 4px", fontSize: 12, fontWeight: 700
+        }}><Copy size={14} /> Copier le message</button>
+      </div>
+
+      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 7 }}>Destinataires</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+        {avecTel.map(d => (
+          <div key={d.key} style={{ display: "flex", alignItems: "center", gap: 9, border: "1px solid var(--border)", borderRadius: 10, padding: "8px 10px", background: envois[d.key] ? "#F3FAF6" : "#fff" }}>
+            {envois[d.key] ? <CheckCircle2 size={16} color="#1F7A5C" /> : <Clock size={16} color="var(--ink-soft)" />}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>{d.nom}</div>
+              <div style={{ fontSize: 11, color: "var(--ink-soft)" }}>{d.groupe}{envois[d.key] ? ` · prévenu le ${new Date(envois[d.key]).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}` : ""}</div>
+            </div>
+            <a href={whatsappLink(d.tel, annonceMessage(annonce, d.nom))} target="_blank" rel="noopener noreferrer" onClick={() => onMarkSent(d.key)}
+              aria-label={`Envoyer à ${d.nom}`} style={{ background: envois[d.key] ? "#fff" : "#25D366", color: envois[d.key] ? "#1A9E4B" : "#fff", border: "1.5px solid #25D366", borderRadius: 8, padding: "6px 9px", display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, fontWeight: 700, textDecoration: "none" }}>
+              <Send size={12} /> {envois[d.key] ? "Renvoyer" : "Envoyer"}
+            </a>
+          </div>
+        ))}
+        {sansTel.map(d => (
+          <div key={d.key} style={{ display: "flex", alignItems: "center", gap: 9, border: "1px dashed var(--border)", borderRadius: 10, padding: "8px 10px" }}>
+            <AlertTriangle size={16} color="var(--danger)" />
+            <div style={{ flex: 1, fontSize: 13 }}><b>{d.nom}</b> <span style={{ fontSize: 11.5, color: "var(--danger)" }}>· pas de numéro dans le répertoire</span></div>
+          </div>
+        ))}
+      </div>
+
+      <button onClick={onEdit} style={{ width: "100%", color: "var(--primary)", fontSize: 13, fontWeight: 700, padding: 8 }}>Modifier la réunion ou les destinataires</button>
+    </ModalShell>
+  );
+}
+
+function ReunionsAnnonces({ annonces, saveAnnonce, deleteAnnonce, pastors, deptHeads, missionaries, regions, seminars, coordSeminars, showToast }) {
+  const [editing, setEditing] = useState(null);
+  const [envoiId, setEnvoiId] = useState(null);
+  const [vue, setVue] = useState("avenir");
+  const contacts = useMemo(() => buildContacts(pastors, deptHeads, missionaries), [pastors, deptHeads, missionaries]);
+  const envoi = annonces.find(a => a.id === envoiId);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const liste = [...annonces]
+    .filter(a => vue === "avenir" ? (a.date || "") >= today : (a.date || "") < today)
+    .sort((x, y) => vue === "avenir" ? `${x.date}${x.heure}`.localeCompare(`${y.date}${y.heure}`) : `${y.date}${y.heure}`.localeCompare(`${x.date}${x.heure}`));
+
+  async function handleSave(a) {
+    const ok = await saveAnnonce(a);
+    if (ok) { setEditing(null); setEnvoiId(a.id); showToast("Enregistré : vous pouvez prévenir les personnes"); }
+  }
+  async function markSent(key) {
+    const a = annonces.find(x => x.id === envoiId);
+    if (!a) return;
+    await saveAnnonce({ ...a, envois: { ...(a.envois || {}), [key]: new Date().toISOString() } });
+  }
+
+  return (
+    <div>
+      <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 12, lineHeight: 1.45 }}>
+        Annoncez une réunion, un programme ou une information, choisissez qui prévenir, puis envoyez à chacun par WhatsApp. Pour une réunion à distance, un lien de visioconférence est créé tout seul.
+      </div>
+      <div style={{ marginBottom: 14 }}>
+        <PrimaryButton full icon={Megaphone} onClick={() => setEditing({})}>Nouvelle réunion ou annonce</PrimaryButton>
+      </div>
+
+      <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+        {[["avenir", "À venir"], ["passees", "Passées"]].map(([k, l]) => (
+          <button key={k} onClick={() => setVue(k)} style={{
+            padding: "5px 12px", borderRadius: 99, fontSize: 12, fontWeight: 700, border: "1px solid var(--border)",
+            background: vue === k ? "var(--ink)" : "#fff", color: vue === k ? "#fff" : "var(--ink-soft)"
+          }}>{l}</button>
+        ))}
+      </div>
+
+      {liste.length === 0 ? (
+        <EmptyState icon={Megaphone} text={vue === "avenir" ? "Aucune réunion ni annonce à venir." : "Aucune réunion passée."} />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+          {liste.map(a => {
+            const avecTel = (a.destinataires || []).filter(d => telDigits(d.tel));
+            const faits = avecTel.filter(d => (a.envois || {})[d.key]).length;
+            const visio = a.type === "Réunion" && a.mode !== "presentiel" && a.lienVisio;
+            const jours = daysUntil(a.date);
+            return (
+              <div key={a.id} style={{ background: "#fff", border: "1px solid var(--border)", borderLeft: `4px solid ${a.type === "Réunion" ? "var(--primary)" : a.type === "Programme" ? "#1F7A5C" : "var(--accent)"}`, borderRadius: 12, padding: "11px 12px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: "var(--accent-dark)" }}>
+                      {a.type}{visio ? " · Visio" : ""}{jours === 0 ? " · Aujourd'hui" : jours === 1 ? " · Demain" : ""}
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, marginTop: 1 }}>{a.titre}</div>
+                    <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 2 }}>{annonceDateTexte(a)}{a.lieu && a.mode !== "visio" ? ` · ${a.lieu}` : ""}</div>
+                  </div>
+                  <button onClick={() => setEditing(a)} style={{ fontSize: 11.5, color: "var(--primary)", fontWeight: 700, whiteSpace: "nowrap" }}>Modifier</button>
+                </div>
+                <div style={{ fontSize: 11.5, marginTop: 6, color: faits === avecTel.length && avecTel.length ? "#1F7A5C" : "var(--ink-soft)", fontWeight: 600 }}>
+                  {faits} / {avecTel.length} personne{avecTel.length > 1 ? "s" : ""} prévenue{faits > 1 ? "s" : ""}
+                </div>
+                <div style={{ display: "flex", gap: 7, marginTop: 9, flexWrap: "wrap" }}>
+                  <button onClick={() => setEnvoiId(a.id)} style={{ display: "flex", alignItems: "center", gap: 5, background: "#25D366", color: "#fff", fontSize: 12, fontWeight: 700, padding: "7px 11px", borderRadius: 8 }}>
+                    <Send size={13} /> Prévenir par WhatsApp
+                  </button>
+                  {visio && (
+                    <a href={a.lienVisio} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: 5, background: "var(--primary)", color: "#fff", fontSize: 12, fontWeight: 700, padding: "7px 11px", borderRadius: 8, textDecoration: "none" }}>
+                      <Video size={13} /> Rejoindre la visio
+                    </a>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {editing && (
+        <AnnonceForm
+          entry={editing} contacts={contacts} regions={regions} seminars={seminars} coordSeminars={coordSeminars}
+          onSave={handleSave} onClose={() => setEditing(null)}
+          onDelete={async a => { const ok = await deleteAnnonce(a); if (ok) { setEditing(null); showToast("Supprimé"); } }}
+        />
+      )}
+      {envoi && !editing && (
+        <AnnonceEnvoi annonce={envoi} onMarkSent={markSent} onEdit={() => setEditing(envoi)} onClose={() => setEnvoiId(null)} showToast={showToast} />
+      )}
+    </div>
+  );
+}
+
+function ProchainesReunions({ annonces, setTab }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const next = [...(annonces || [])].filter(a => (a.date || "") >= today)
+    .sort((x, y) => `${x.date}${x.heure}`.localeCompare(`${y.date}${y.heure}`)).slice(0, 3);
+  if (!next.length) return null;
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+        <Megaphone size={15} color="var(--primary)" />
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--ink)" }}>Réunions et annonces</div>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {next.map(a => {
+          const visio = a.type === "Réunion" && a.mode !== "presentiel" && a.lienVisio;
+          return (
+            <div key={a.id} style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 12, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ flex: 1, minWidth: 0 }} onClick={() => setTab("messagerie")}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{a.titre}</div>
+                <div style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{a.type} · {annonceDateTexte(a)}</div>
+              </div>
+              {visio && (
+                <a href={a.lienVisio} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: 4, background: "var(--primary)", color: "#fff", fontSize: 11.5, fontWeight: 700, padding: "6px 9px", borderRadius: 8, textDecoration: "none" }}>
+                  <Video size={12} /> Rejoindre
+                </a>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function Messagerie({ seminars, coordSeminars, pastors, deptHeads, missionaries, regions, annonces, saveAnnonce, deleteAnnonce, showToast }) {
+  const [mode, setMode] = useState("reunions");
+  return (
+    <div>
+      <SectionTitle sub="Réunions, annonces et messages WhatsApp, avec visioconférence">Messagerie</SectionTitle>
 
       <div style={{ display: "flex", gap: 6, marginBottom: 16, background: "#fff", padding: 4, borderRadius: 11, border: "1px solid var(--border)" }}>
+        <button onClick={() => setMode("reunions")} style={segButtonStyle(mode === "reunions")}>Réunions & annonces</button>
         <button onClick={() => setMode("seminaire")} style={segButtonStyle(mode === "seminaire")}>Par séminaire</button>
         <button onClick={() => setMode("groupe")} style={segButtonStyle(mode === "groupe")}>Par catégorie</button>
       </div>
 
-      {mode === "seminaire" ? (
+      {mode === "reunions" ? (
+        <ReunionsAnnonces
+          annonces={annonces} saveAnnonce={saveAnnonce} deleteAnnonce={deleteAnnonce}
+          pastors={pastors} deptHeads={deptHeads} missionaries={missionaries} regions={regions}
+          seminars={seminars} coordSeminars={coordSeminars} showToast={showToast}
+        />
+      ) : mode === "seminaire" ? (
         <MessagerieParSeminaire seminars={seminars} pastors={pastors} />
       ) : (
         <MessagerieParGroupe pastors={pastors} />
