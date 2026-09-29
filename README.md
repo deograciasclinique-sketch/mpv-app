@@ -55,6 +55,13 @@ Onglet **Messages → Réunions & annonces** (raccourci « Réunions » sur l'ac
 - **envoi WhatsApp** : un bouton « Envoyer à … » par personne, message personnalisé, l'app retient qui a été prévenu ; aussi « Dans un groupe WhatsApp » et « Copier le message ».
 Chaque fiche du Répertoire peut être rattachée à un département de la coordination (champ facultatif) pour inviter tout un département d'un geste.
 
+**Compte rendu** (bouton « Faire le compte rendu » le jour de la réunion et après) :
+- présences : chaque invité passe de Présent à Excusé puis Absent d'un toucher ; ajout des présents non invités ;
+- captures d'écran de la visio (faites avec le téléphone), jusqu'à 4, avec légende ;
+- propos : dictée vocale du navigateur (Chrome) qui écrit ce que le micro entend, avec l'heure et le nom de l'orateur ;
+- points abordés, décisions, actions (quoi / qui / quand), prochaine réunion ;
+- partage du résumé par WhatsApp, copie avec les propos. Chaque compte rendu est un document `cr-<id de la réunion>`.
+
 ## Données
 Toutes les données sont dans Firestore, collection `mpv-data` (voir `firestore.rules`).
 Les nouveaux documents sont `finance-reports`, `activity-reports`, `expense-reports`, `dept-plans`, `dept-bilans`, `dept-codes` et `annonces`.

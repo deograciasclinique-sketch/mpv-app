@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Home, CalendarDays, Users, MessageCircle, Shield, Plus, Phone,
   X, Check, Bell, Trash2, ChevronRight, Search, Clock, MapPin, Copy, Send,
   ClipboardList, FileText, BarChart3, Image as ImageIcon, Video, Paperclip,
   BookOpen, Lock, Unlock, Target, CheckCircle2, AlertTriangle, ExternalLink,
   ChevronLeft, Building2, Navigation, Share2, XCircle, Wallet, ShieldCheck, Filter, Globe, Eye, EyeOff, Camera,
-  Menu, QrCode, Smartphone, Megaphone, UserPlus, CheckSquare, Square, RefreshCw
+  Menu, QrCode, Smartphone, Megaphone, UserPlus, CheckSquare, Square, RefreshCw, Mic, MicOff, ImagePlus, ClipboardCheck
 } from "lucide-react";
 import QRCode from "qrcode";
 import { loadKey, saveKey, updateKey } from "./firebase.js";
@@ -1236,6 +1236,7 @@ const GUIDE = [
       "« Réunions & annonces » : « Nouvelle réunion ou annonce », remplissez titre, date, heure et ordre du jour, puis choisissez qui prévenir (tout le monde, un ou plusieurs départements, une fonction, une assemblée, ou personne par personne).",
       "Pour une réunion à distance, choisissez « Visioconférence » : un lien de réunion est créé tout seul et ajouté au message. Le jour venu, chacun touche « Rejoindre la visio ».",
       "Envoi : touchez « Envoyer à … » ; WhatsApp s'ouvre avec le message personnalisé, vous appuyez sur Envoyer, revenez dans l'app et passez à la personne suivante. L'app retient qui a déjà été prévenu.",
+      "Le jour de la réunion, « Faire le compte rendu » : cochez les présences, ajoutez les captures d'écran de la visio, utilisez la dictée pour écrire les propos, notez les décisions et les actions, puis partagez le compte rendu par WhatsApp.",
       "« Par séminaire » : envoie la date, l'heure et le thème aux prédicateurs affectés.",
       "« Par catégorie » : écrire à tous les pasteurs, prédicateurs ou aspirants d'un coup.",
     ],
@@ -3933,12 +3934,353 @@ function AnnonceEnvoi({ annonce, onMarkSent, onEdit, onClose, showToast }) {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  COMPTE RENDU DE RÉUNION                                            */
+/* ------------------------------------------------------------------ */
+
+const CR_MAX_CAPTURES = 4;
+const PRESENCE_ETATS = [
+  { value: "present", label: "Présent", tone: "#1F7A5C", bg: "#E3F1EA" },
+  { value: "excuse", label: "Excusé", tone: "var(--accent-dark)", bg: "var(--accent-soft)" },
+  { value: "absent", label: "Absent", tone: "var(--danger)", bg: "#F5E4E4" },
+];
+
+function heureCourte(d = new Date()) {
+  return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+}
+
+// Dictée vocale du navigateur : transforme ce que le micro entend en texte.
+function useDictee(onFinal) {
+  const SR = typeof window !== "undefined" ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
+  const recRef = useRef(null);
+  const wantRef = useRef(false);
+  const cbRef = useRef(onFinal);
+  cbRef.current = onFinal;
+  const [actif, setActif] = useState(false);
+  const [provisoire, setProvisoire] = useState("");
+  const [erreur, setErreur] = useState("");
+
+  function start() {
+    if (!SR) return;
+    setErreur("");
+    const rec = new SR();
+    rec.lang = "fr-FR";
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.onresult = (e) => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript.trim();
+        if (e.results[i].isFinal) { if (t) cbRef.current(t); } else interim += t + " ";
+      }
+      setProvisoire(interim.trim());
+    };
+    rec.onerror = (e) => {
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        wantRef.current = false;
+        setErreur("Le micro est refusé. Autorisez le micro pour ce site dans les réglages du navigateur.");
+      } else if (e.error === "network") {
+        setErreur("La dictée a besoin d'internet.");
+      }
+    };
+    rec.onend = () => {
+      setProvisoire("");
+      if (wantRef.current) { try { rec.start(); return; } catch (err) {} }
+      setActif(false);
+    };
+    recRef.current = rec;
+    wantRef.current = true;
+    try { rec.start(); setActif(true); } catch (err) { setErreur("Impossible de démarrer la dictée."); }
+  }
+  function stop() {
+    wantRef.current = false;
+    try { recRef.current && recRef.current.stop(); } catch (err) {}
+    setActif(false);
+  }
+  useEffect(() => () => { wantRef.current = false; try { recRef.current && recRef.current.stop(); } catch (e) {} }, []);
+  return { supporte: !!SR, actif, provisoire, erreur, start, stop };
+}
+
+function compteRenduToText(a, cr) {
+  const pres = (cr.presences || []);
+  const presents = pres.filter(p => p.etat === "present").map(p => p.nom);
+  const excuses = pres.filter(p => p.etat === "excuse").map(p => p.nom);
+  const absents = pres.filter(p => p.etat === "absent").map(p => p.nom);
+  const L = [
+    "📝 *COMPTE RENDU DE RÉUNION*", "Mission Parole de Vie Burkina", "",
+    `*${a.titre}*`, `📅 ${annonceDateTexte(a)}${a.type === "Réunion" && a.mode !== "presentiel" ? " · visioconférence" : a.lieu ? ` · ${a.lieu}` : ""}`,
+  ];
+  if (cr.president) L.push(`Présidée par : ${cr.president}`);
+  if (cr.heureDebut || cr.heureFin) L.push(`Horaire : ${cr.heureDebut || "?"} – ${cr.heureFin || "?"}`);
+  L.push("", `*Présents (${presents.length})* : ${presents.join(", ") || "—"}`);
+  if (excuses.length) L.push(`*Excusés (${excuses.length})* : ${excuses.join(", ")}`);
+  if (absents.length) L.push(`*Absents (${absents.length})* : ${absents.join(", ")}`);
+  if (cr.points) L.push("", "*Points abordés*", cr.points);
+  if (cr.decisions) L.push("", "*Décisions*", cr.decisions);
+  const actions = (cr.actions || []).filter(x => (x.quoi || "").trim());
+  if (actions.length) {
+    L.push("", "*Actions à mener*");
+    actions.forEach((x, i) => L.push(`${i + 1}. ${x.quoi}${x.qui ? ` — ${x.qui}` : ""}${x.quand ? ` (pour le ${formatDateLong(x.quand)})` : ""}`));
+  }
+  if (cr.prochaine) L.push("", `*Prochaine réunion* : ${cr.prochaine}`);
+  if ((cr.captures || []).length) L.push("", `📷 ${cr.captures.length} capture(s) d'écran disponibles dans l'application.`);
+  if (cr.redacteur) L.push("", `Rédigé par : ${cr.redacteur}`);
+  return L.join("\n");
+}
+
+function CompteRenduForm({ annonce, onSaved, onClose, showToast }) {
+  const [cr, setCr] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [vue, setVue] = useState("presences");
+  const [orateur, setOrateur] = useState("");
+  const [zoom, setZoom] = useState(null);
+  const key = `cr-${annonce.id}`;
+
+  useEffect(() => {
+    let alive = true;
+    loadKey(key, null).then(v => {
+      if (!alive) return;
+      const invites = (annonce.destinataires || []).map(d => ({ key: d.key, nom: d.nom, etat: "absent" }));
+      const base = v || {
+        heureDebut: annonce.heure || "", heureFin: "", president: annonce.organisateur || "", redacteur: "",
+        points: annonce.contenu || "", decisions: "", prochaine: "", transcription: "", actions: [], captures: [], presences: [],
+      };
+      const known = new Set((base.presences || []).map(p => p.key));
+      setCr({ ...base, presences: [...(base.presences || []), ...invites.filter(i => !known.has(i.key))] });
+    });
+    return () => { alive = false; };
+  }, [key]);
+
+  const dictee = useDictee(t => {
+    setCr(prev => {
+      const ligne = `[${heureCourte()}]${orateurRef.current ? ` ${orateurRef.current} :` : ""} ${t}`;
+      return { ...prev, transcription: prev.transcription ? `${prev.transcription}\n${ligne}` : ligne };
+    });
+  });
+  const orateurRef = useRef("");
+  orateurRef.current = orateur;
+
+  if (!cr) {
+    return (
+      <ModalShell title="Compte rendu" onClose={onClose}>
+        <div style={{ padding: 20, textAlign: "center", color: "var(--ink-soft)", fontSize: 13 }}>Chargement…</div>
+      </ModalShell>
+    );
+  }
+
+  const set = (k, v) => setCr(p => ({ ...p, [k]: v }));
+  const presents = cr.presences.filter(p => p.etat === "present");
+
+  async function ajouterCaptures(e) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    const place = CR_MAX_CAPTURES - cr.captures.length;
+    if (place <= 0) { showToast(`Maximum ${CR_MAX_CAPTURES} captures`); return; }
+    setUploading(true);
+    const ajout = [];
+    for (const f of files.slice(0, place)) {
+      try { ajout.push({ id: uid(), dataUrl: await compressImage(f, 900, 0.55), legende: "" }); } catch (err) {}
+    }
+    setCr(p => ({ ...p, captures: [...p.captures, ...ajout] }));
+    setUploading(false);
+  }
+
+  async function enregistrer() {
+    const body = { ...cr, modifieLe: new Date().toISOString() };
+    const taille = JSON.stringify(body).length;
+    if (taille > 950000) { showToast("Trop lourd : retirez une capture ou raccourcissez la transcription"); return; }
+    if (dictee.actif) dictee.stop();
+    setSaving(true);
+    const ok = await saveKey(key, body);
+    setSaving(false);
+    if (!ok) { showToast("⚠ Échec de l'enregistrement — vérifiez la connexion"); return; }
+    await onSaved({ redige: true, nbPresents: presents.length, modifieLe: body.modifieLe });
+    showToast("Compte rendu enregistré");
+  }
+
+  const texte = compteRenduToText(annonce, cr);
+  const onglets = [["presences", `Présents ${presents.length}`], ["captures", `Photos ${cr.captures.length}`], ["propos", "Propos"], ["decisions", "Décisions"]];
+
+  return (
+    <ModalShell title="Compte rendu de la réunion" onClose={onClose}>
+      <div style={{ background: "#F4F5EE", borderRadius: 11, padding: "10px 12px", marginBottom: 12 }}>
+        <div style={{ fontSize: 14, fontWeight: 700 }}>{annonce.titre}</div>
+        <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 2 }}>{annonceDateTexte(annonce)}</div>
+      </div>
+
+      <div style={{ display: "flex", gap: 4, marginBottom: 14, background: "#fff", padding: 4, borderRadius: 11, border: "1px solid var(--border)", overflowX: "auto" }}>
+        {onglets.map(([k, l]) => (
+          <button key={k} onClick={() => setVue(k)} style={{ ...segButtonStyle(vue === k), flex: "1 0 auto", padding: "8px 9px" }}>{l}</button>
+        ))}
+      </div>
+
+      {vue === "presences" && (
+        <>
+          <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ flex: 1 }}><Field label="Début"><input type="time" style={inputStyle} value={cr.heureDebut} onChange={e => set("heureDebut", e.target.value)} /></Field></div>
+            <div style={{ flex: 1 }}><Field label="Fin"><input type="time" style={inputStyle} value={cr.heureFin} onChange={e => set("heureFin", e.target.value)} /></Field></div>
+          </div>
+          <Field label="Présidée par"><input style={inputStyle} value={cr.president} onChange={e => set("president", e.target.value)} /></Field>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-soft)" }}>Touchez chaque personne pour changer son état</div>
+            <button onClick={() => set("presences", cr.presences.map(p => ({ ...p, etat: "present" })))} style={{ fontSize: 11.5, fontWeight: 700, color: "var(--primary)" }}>Tous présents</button>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+            {cr.presences.map(p => {
+              const st = PRESENCE_ETATS.find(x => x.value === p.etat) || PRESENCE_ETATS[2];
+              const suivant = PRESENCE_ETATS[(PRESENCE_ETATS.indexOf(st) + 1) % PRESENCE_ETATS.length].value;
+              return (
+                <button key={p.key} onClick={() => set("presences", cr.presences.map(x => x.key === p.key ? { ...x, etat: suivant } : x))} style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, border: "1px solid var(--border)", borderRadius: 10, padding: "9px 11px", background: "#fff", textAlign: "left"
+                }}>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>{p.nom}</span>
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: st.tone, background: st.bg, borderRadius: 99, padding: "3px 10px" }}>{st.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          <AddPresence onAdd={nom => set("presences", [...cr.presences, { key: "y-" + uid(), nom, etat: "present" }])} />
+        </>
+      )}
+
+      {vue === "captures" && (
+        <>
+          <div style={{ fontSize: 12.5, color: "var(--ink-soft)", lineHeight: 1.5, marginBottom: 12 }}>
+            Pendant la visio, faites une <b>capture d'écran</b> avec votre téléphone quand les participants sont visibles (en général : boutons <b>Marche + Volume bas</b> en même temps). Ajoutez-la ensuite ici. Maximum {CR_MAX_CAPTURES} captures.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+            {cr.captures.map(c => (
+              <div key={c.id} style={{ border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden", background: "#fff" }}>
+                <img src={c.dataUrl} alt="Capture de la réunion" onClick={() => setZoom(c.dataUrl)} style={{ width: "100%", aspectRatio: "4 / 3", objectFit: "cover", display: "block", cursor: "zoom-in" }} />
+                <div style={{ display: "flex", gap: 4, padding: 5 }}>
+                  <input style={{ ...inputStyle, fontSize: 11.5, padding: "5px 7px" }} value={c.legende} placeholder="Légende"
+                    onChange={e => set("captures", cr.captures.map(x => x.id === c.id ? { ...x, legende: e.target.value } : x))} />
+                  <button onClick={() => set("captures", cr.captures.filter(x => x.id !== c.id))} aria-label="Retirer la capture" style={{ padding: 4 }}><Trash2 size={14} color="var(--danger)" /></button>
+                </div>
+              </div>
+            ))}
+            {cr.captures.length < CR_MAX_CAPTURES && (
+              <label style={{ border: "1.5px dashed var(--border)", borderRadius: 10, aspectRatio: "4 / 3", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5, cursor: "pointer", color: "var(--primary)", fontSize: 12, fontWeight: 700, background: "#fff" }}>
+                <ImagePlus size={22} /> {uploading ? "Chargement…" : "Ajouter"}
+                <input type="file" accept="image/*" multiple onChange={ajouterCaptures} style={{ display: "none" }} disabled={uploading} />
+              </label>
+            )}
+          </div>
+        </>
+      )}
+
+      {vue === "propos" && (
+        <>
+          <div style={{ fontSize: 12.5, color: "var(--ink-soft)", lineHeight: 1.5, marginBottom: 10 }}>
+            La <b>dictée</b> écrit ce que le micro entend. Utilisez un <b>deuxième téléphone</b> posé près du haut-parleur de celui qui suit la visio, ou dictez vous-même un résumé après la réunion.
+          </div>
+          {dictee.supporte ? (
+            <>
+              <Field label="Qui parle ? (facultatif, ajouté devant chaque phrase)">
+                <select style={inputStyle} value={orateur} onChange={e => setOrateur(e.target.value)}>
+                  <option value="">— Ne pas préciser —</option>
+                  {presents.map(p => <option key={p.key} value={p.nom}>{p.nom}</option>)}
+                </select>
+              </Field>
+              <button onClick={dictee.actif ? dictee.stop : dictee.start} style={{
+                width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 12, padding: "13px 10px",
+                fontSize: 14.5, fontWeight: 800, color: "#fff", background: dictee.actif ? "var(--danger)" : "var(--primary)", marginBottom: 8
+              }}>
+                {dictee.actif ? <><MicOff size={18} /> Arrêter la dictée</> : <><Mic size={18} /> Démarrer la dictée</>}
+              </button>
+              {dictee.actif && (
+                <div style={{ fontSize: 12, color: "var(--danger)", fontWeight: 700, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--danger)", display: "inline-block" }} />
+                  Écoute en cours… {dictee.provisoire && <span style={{ fontWeight: 400, color: "var(--ink-soft)", fontStyle: "italic" }}>« {dictee.provisoire} »</span>}
+                </div>
+              )}
+              {dictee.erreur && <div style={{ fontSize: 12, color: "var(--danger)", fontWeight: 600, marginBottom: 8 }}>{dictee.erreur}</div>}
+            </>
+          ) : (
+            <div style={{ fontSize: 12.5, background: "var(--accent-soft)", color: "var(--accent-dark)", borderRadius: 10, padding: "9px 11px", marginBottom: 10, lineHeight: 1.45 }}>
+              La dictée n'est pas disponible dans ce navigateur. Utilisez <b>Chrome</b>, ou le <b>micro du clavier</b> de votre téléphone dans la zone de texte ci-dessous.
+            </div>
+          )}
+          <Field label="Propos de la réunion (modifiable)">
+            <textarea style={{ ...inputStyle, minHeight: 220, resize: "vertical", fontSize: 13.5, lineHeight: 1.5 }} value={cr.transcription}
+              onChange={e => set("transcription", e.target.value)} placeholder="Les propos dictés apparaissent ici, avec l'heure. Vous pouvez aussi écrire ou coller un texte." />
+          </Field>
+        </>
+      )}
+
+      {vue === "decisions" && (
+        <>
+          <Field label="Points abordés">
+            <textarea style={{ ...inputStyle, minHeight: 80, resize: "vertical" }} value={cr.points} onChange={e => set("points", e.target.value)} />
+          </Field>
+          <Field label="Décisions prises">
+            <textarea style={{ ...inputStyle, minHeight: 80, resize: "vertical" }} value={cr.decisions} onChange={e => set("decisions", e.target.value)} placeholder="Une décision par ligne" />
+          </Field>
+          <Field label="Actions à mener">
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {cr.actions.map((x, i) => (
+                <div key={i} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 8, background: "#FAFAF6" }}>
+                  <input style={{ ...inputStyle, marginBottom: 6, fontSize: 13 }} value={x.quoi} placeholder="Quoi ?" onChange={e => set("actions", cr.actions.map((y, j) => j === i ? { ...y, quoi: e.target.value } : y))} />
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <input style={{ ...inputStyle, flex: 1.3, fontSize: 13 }} value={x.qui} placeholder="Qui ?" onChange={e => set("actions", cr.actions.map((y, j) => j === i ? { ...y, qui: e.target.value } : y))} />
+                    <input type="date" style={{ ...inputStyle, flex: 1, fontSize: 13 }} value={x.quand} onChange={e => set("actions", cr.actions.map((y, j) => j === i ? { ...y, quand: e.target.value } : y))} />
+                    <button onClick={() => set("actions", cr.actions.filter((_, j) => j !== i))} aria-label="Retirer l'action" style={{ padding: 4 }}><Trash2 size={15} color="var(--danger)" /></button>
+                  </div>
+                </div>
+              ))}
+              <button onClick={() => set("actions", [...cr.actions, { quoi: "", qui: "", quand: "" }])} style={{ alignSelf: "flex-start", border: "1.5px dashed var(--border)", borderRadius: 9, padding: "7px 12px", fontSize: 12.5, fontWeight: 600, color: "var(--primary)", display: "flex", alignItems: "center", gap: 5 }}>
+                <Plus size={13} /> Ajouter une action
+              </button>
+            </div>
+          </Field>
+          <Field label="Prochaine réunion"><input style={inputStyle} value={cr.prochaine} onChange={e => set("prochaine", e.target.value)} placeholder="Ex. mardi 3 novembre à 19h" /></Field>
+          <Field label="Rédigé par"><input style={inputStyle} value={cr.redacteur} onChange={e => set("redacteur", e.target.value)} /></Field>
+        </>
+      )}
+
+      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, marginTop: 6 }}>
+        <PrimaryButton full icon={Check} onClick={saving ? undefined : enregistrer}>{saving ? "Enregistrement…" : "Enregistrer le compte rendu"}</PrimaryButton>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+          <a href={shareWhatsappLink(texte)} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, background: "#25D366", color: "#fff", borderRadius: 10, padding: "9px 4px", fontSize: 12, fontWeight: 700, textDecoration: "none" }}>
+            <Send size={13} /> Partager (WhatsApp)
+          </a>
+          <button onClick={async () => { try { await navigator.clipboard.writeText(texte + (cr.transcription ? `\n\n*Propos de la réunion*\n${cr.transcription}` : "")); showToast("Compte rendu copié"); } catch (e) { showToast("Copie impossible"); } }} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, border: "1.5px solid var(--border)", borderRadius: 10, padding: "9px 4px", fontSize: 12, fontWeight: 700 }}>
+            <Copy size={13} /> Copier avec les propos
+          </button>
+        </div>
+        <div style={{ fontSize: 11, color: "var(--ink-soft)", marginTop: 7, lineHeight: 1.4 }}>
+          Le partage WhatsApp envoie le résumé (présences, décisions, actions). Les captures restent visibles dans l'application.
+        </div>
+      </div>
+
+      {zoom && (
+        <div onClick={() => setZoom(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.85)", zIndex: 90, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <img src={zoom} alt="Capture agrandie" style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 8 }} />
+        </div>
+      )}
+    </ModalShell>
+  );
+}
+
+function AddPresence({ onAdd }) {
+  const [nom, setNom] = useState("");
+  return (
+    <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+      <input style={{ ...inputStyle, fontSize: 13 }} value={nom} onChange={e => setNom(e.target.value)} placeholder="Ajouter une personne présente non invitée" />
+      <button onClick={() => { if (nom.trim()) { onAdd(nom.trim()); setNom(""); } }} aria-label="Ajouter" style={{ background: "var(--primary)", color: "#fff", borderRadius: 9, padding: "0 12px" }}><UserPlus size={16} /></button>
+    </div>
+  );
+}
+
 function ReunionsAnnonces({ annonces, saveAnnonce, deleteAnnonce, pastors, deptHeads, missionaries, regions, seminars, coordSeminars, showToast }) {
   const [editing, setEditing] = useState(null);
   const [envoiId, setEnvoiId] = useState(null);
+  const [crId, setCrId] = useState(null);
   const [vue, setVue] = useState("avenir");
   const contacts = useMemo(() => buildContacts(pastors, deptHeads, missionaries), [pastors, deptHeads, missionaries]);
   const envoi = annonces.find(a => a.id === envoiId);
+  const crAnnonce = annonces.find(a => a.id === crId);
 
   const today = new Date().toISOString().slice(0, 10);
   const liste = [...annonces]
@@ -4001,10 +4343,15 @@ function ReunionsAnnonces({ annonces, saveAnnonce, deleteAnnonce, pastors, deptH
                   <button onClick={() => setEnvoiId(a.id)} style={{ display: "flex", alignItems: "center", gap: 5, background: "#25D366", color: "#fff", fontSize: 12, fontWeight: 700, padding: "7px 11px", borderRadius: 8 }}>
                     <Send size={13} /> Prévenir par WhatsApp
                   </button>
-                  {visio && (
+                  {visio && vue === "avenir" && (
                     <a href={a.lienVisio} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: 5, background: "var(--primary)", color: "#fff", fontSize: 12, fontWeight: 700, padding: "7px 11px", borderRadius: 8, textDecoration: "none" }}>
                       <Video size={13} /> Rejoindre la visio
                     </a>
+                  )}
+                  {a.type === "Réunion" && (jours === null || jours <= 0) && (
+                    <button onClick={() => setCrId(a.id)} style={{ display: "flex", alignItems: "center", gap: 5, background: a.compteRendu ? "#E3F1EA" : "#fff", color: a.compteRendu ? "#1F7A5C" : "var(--primary)", border: `1.5px solid ${a.compteRendu ? "#1F7A5C" : "var(--primary)"}`, fontSize: 12, fontWeight: 700, padding: "6px 10px", borderRadius: 8 }}>
+                      <ClipboardCheck size={13} /> {a.compteRendu ? `Compte rendu · ${a.compteRendu.nbPresents} présents` : "Faire le compte rendu"}
+                    </button>
                   )}
                 </div>
               </div>
@@ -4018,6 +4365,12 @@ function ReunionsAnnonces({ annonces, saveAnnonce, deleteAnnonce, pastors, deptH
           entry={editing} contacts={contacts} regions={regions} seminars={seminars} coordSeminars={coordSeminars}
           onSave={handleSave} onClose={() => setEditing(null)}
           onDelete={async a => { const ok = await deleteAnnonce(a); if (ok) { setEditing(null); showToast("Supprimé"); } }}
+        />
+      )}
+      {crAnnonce && (
+        <CompteRenduForm
+          annonce={crAnnonce} onClose={() => setCrId(null)} showToast={showToast}
+          onSaved={async info => { await saveAnnonce({ ...crAnnonce, compteRendu: info }); }}
         />
       )}
       {envoi && !editing && (
