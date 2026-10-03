@@ -51,6 +51,8 @@ Bouton **MENU** en haut à droite (et raccourci « Partager & aide » sur l'accu
 Onglet **Messages → Réunions & annonces** (raccourci « Réunions » sur l'accueil) :
 - annoncer une **réunion**, un **programme** (repris d'un séminaire existant) ou une **annonce** : titre, date, heure, lieu, ordre du jour ;
 - **visioconférence** : un lien Jitsi Meet unique est créé automatiquement (ou coller un lien Google Meet / Zoom) ; bouton « Rejoindre la visio » dans la liste et sur l'accueil ;
+- **visio dans l'app** (dès que le serveur de l'église est installé, voir `serveur/INSTALL-JITSI.md` puis `VISIO_SERVER` dans `src/visio.js`) : la réunion s'ouvre dans l'app, 50+ participants, chat, salle d'attente, partage d'écran (depuis un ordinateur, ou via l'app Jitsi Meet sur téléphone), enregistrement par l'organisateur ; tant que `VISIO_SERVER` vaut `meet.jit.si`, le lien s'ouvre dehors comme avant ;
+- **rappels** : badge « Dans 12 min » / « En cours » sur les réunions, et notification 15 min avant (bouton « Activer les rappels » sur l'accueil ; fonctionne quand l'app est ouverte ou vient d'être utilisée) ;
 - **destinataires** : tout le monde, chefs de département, un ou plusieurs départements, une fonction, une assemblée, personne par personne, ou invités hors répertoire ;
 - **envoi WhatsApp** : un bouton « Envoyer à … » par personne, message personnalisé, l'app retient qui a été prévenu ; aussi « Dans un groupe WhatsApp » et « Copier le message ».
 Chaque fiche du Répertoire peut être rattachée à un département de la coordination (champ facultatif) pour inviter tout un département d'un geste.

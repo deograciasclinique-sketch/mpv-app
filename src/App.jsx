@@ -9,6 +9,8 @@ import {
 } from "lucide-react";
 import QRCode from "qrcode";
 import { loadKey, saveKey, updateKey } from "./firebase.js";
+import { newVisioLink, canEmbedVisio, VISIO_SERVER } from "./visio.js";
+import { RejoindreVisio, BadgeReunion, RappelsVisio } from "./VisioRoom.jsx";
 
 /* ------------------------------------------------------------------ */
 /*  Données par défaut                                                */
@@ -3610,12 +3612,6 @@ function buildContacts(pastors, deptHeads, missionaries) {
   return out;
 }
 
-function newVisioLink(titre) {
-  const slug = (titre || "reunion").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9]+/g, "").slice(0, 24) || "Reunion";
-  const rnd = Math.random().toString(36).slice(2, 8).toUpperCase();
-  return `https://meet.jit.si/MPV-${slug}-${rnd}`;
-}
-
 function annonceDateTexte(a) {
   if (!a.date) return "";
   return `${formatDateLong(a.date)}${a.heure ? ` à ${a.heure.replace(":", "h")}` : ""}`;
@@ -3632,7 +3628,9 @@ function annonceMessage(a, nom) {
   if (a.type === "Réunion" && a.mode !== "visio" && a.lieu) L.push(`📍 Lieu : ${a.lieu}`);
   if (a.type !== "Réunion" && a.lieu) L.push(`📍 Lieu : ${a.lieu}`);
   if (a.type === "Réunion" && a.mode !== "presentiel" && a.lienVisio) {
-    L.push("", `💻 *Visioconférence* : ${a.lienVisio}`, "À l'heure de la réunion, touchez le lien pour rejoindre (sur téléphone, l'application Jitsi Meet peut être proposée).");
+    L.push("", `💻 *Visioconférence* : ${a.lienVisio}`, canEmbedVisio(a.lienVisio)
+      ? "À l'heure de la réunion, ouvrez l'app MPV Burkina et touchez « Rejoindre la visio » (ou touchez ce lien)."
+      : "À l'heure de la réunion, touchez le lien pour rejoindre (sur téléphone, l'application Jitsi Meet peut être proposée).");
   }
   if (a.contenu) L.push("", a.type === "Réunion" ? "*Ordre du jour :*" : "", a.contenu);
   L.push("");
@@ -3818,7 +3816,9 @@ function AnnonceForm({ entry, contacts, regions, seminars, coordSeminars, onSave
               <RefreshCw size={13} /> Nouveau lien
             </button>
             <span style={{ fontSize: 11, color: "var(--ink-soft)", lineHeight: 1.4 }}>
-              Salle Jitsi Meet gratuite créée pour cette réunion. Vous pouvez aussi coller un lien Google Meet ou Zoom.
+              {VISIO_SERVER === "meet.jit.si"
+                ? "Salle Jitsi Meet gratuite créée pour cette réunion. Vous pouvez aussi coller un lien Google Meet ou Zoom."
+                : "Salle créée sur le serveur de visio de l'église : elle s'ouvre dans l'app (chat, salle d'attente, partage d'écran, enregistrement)."}
             </span>
           </div>
         </div>
@@ -4330,6 +4330,7 @@ function ReunionsAnnonces({ annonces, saveAnnonce, deleteAnnonce, pastors, deptH
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: "var(--accent-dark)" }}>
                       {a.type}{visio ? " · Visio" : ""}{jours === 0 ? " · Aujourd'hui" : jours === 1 ? " · Demain" : ""}
+                      {a.type === "Réunion" && <BadgeReunion annonce={a} />}
                     </div>
                     <div style={{ fontSize: 14, fontWeight: 700, marginTop: 1 }}>{a.titre}</div>
                     <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 2 }}>{annonceDateTexte(a)}{a.lieu && a.mode !== "visio" ? ` · ${a.lieu}` : ""}</div>
@@ -4343,11 +4344,7 @@ function ReunionsAnnonces({ annonces, saveAnnonce, deleteAnnonce, pastors, deptH
                   <button onClick={() => setEnvoiId(a.id)} style={{ display: "flex", alignItems: "center", gap: 5, background: "#25D366", color: "#fff", fontSize: 12, fontWeight: 700, padding: "7px 11px", borderRadius: 8 }}>
                     <Send size={13} /> Prévenir par WhatsApp
                   </button>
-                  {visio && vue === "avenir" && (
-                    <a href={a.lienVisio} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: 5, background: "var(--primary)", color: "#fff", fontSize: 12, fontWeight: 700, padding: "7px 11px", borderRadius: 8, textDecoration: "none" }}>
-                      <Video size={13} /> Rejoindre la visio
-                    </a>
-                  )}
+                  {visio && vue === "avenir" && <RejoindreVisio annonce={a} />}
                   {a.type === "Réunion" && (jours === null || jours <= 0) && (
                     <button onClick={() => setCrId(a.id)} style={{ display: "flex", alignItems: "center", gap: 5, background: a.compteRendu ? "#E3F1EA" : "#fff", color: a.compteRendu ? "#1F7A5C" : "var(--primary)", border: `1.5px solid ${a.compteRendu ? "#1F7A5C" : "var(--primary)"}`, fontSize: 12, fontWeight: 700, padding: "6px 10px", borderRadius: 8 }}>
                       <ClipboardCheck size={13} /> {a.compteRendu ? `Compte rendu · ${a.compteRendu.nbPresents} présents` : "Faire le compte rendu"}
@@ -4389,7 +4386,8 @@ function ProchainesReunions({ annonces, setTab }) {
     <div style={{ marginBottom: 20 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
         <Megaphone size={15} color="var(--primary)" />
-        <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--ink)" }}>Réunions et annonces</div>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--ink)", flex: 1 }}>Réunions et annonces</div>
+        <RappelsVisio annonces={annonces} />
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {next.map(a => {
@@ -4398,13 +4396,9 @@ function ProchainesReunions({ annonces, setTab }) {
             <div key={a.id} style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 12, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{ flex: 1, minWidth: 0 }} onClick={() => setTab("messagerie")}>
                 <div style={{ fontSize: 13, fontWeight: 700 }}>{a.titre}</div>
-                <div style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{a.type} · {annonceDateTexte(a)}</div>
+                <div style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{a.type} · {annonceDateTexte(a)}{a.type === "Réunion" && <BadgeReunion annonce={a} />}</div>
               </div>
-              {visio && (
-                <a href={a.lienVisio} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: 4, background: "var(--primary)", color: "#fff", fontSize: 11.5, fontWeight: 700, padding: "6px 9px", borderRadius: 8, textDecoration: "none" }}>
-                  <Video size={12} /> Rejoindre
-                </a>
-              )}
+              {visio && <RejoindreVisio annonce={a} label="Rejoindre" small />}
             </div>
           );
         })}
