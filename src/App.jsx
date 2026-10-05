@@ -1225,7 +1225,7 @@ const GUIDE = [
     points: [
       "Les pasteurs, prédicateurs et aspirants avec leur téléphone.",
       "Les régions et leurs assemblées, avec le pasteur titulaire et son contact.",
-      "« Membres & comité » : choisissez l'assemblée, puis « Ajouter » pour enregistrer un membre (nom, prénom, sexe, âge, profession, situation matrimoniale, date du salut). Dans sa fiche, choisissez sa responsabilité pour le placer dans le comité directeur.",
+      "« Membres & comité » : choisissez l'assemblée, puis « Ajouter » pour enregistrer un membre (nom, prénom, catégorie, sexe, âge, profession, situation matrimoniale, date du salut). Dans sa fiche, choisissez sa responsabilité pour le placer dans le comité directeur.",
       "Les missionnaires.",
     ],
   },
@@ -3514,6 +3514,32 @@ function RegionsView({ regions, setRegions, showToast }) {
 /* ------------------------------------------------------------------ */
 
 const SEXES = ["Masculin", "Féminin"];
+const CATEGORIES_MEMBRE = [
+  { key: "Homme", pluriel: "Hommes", color: "var(--primary)", bg: "#e0ecff" },
+  { key: "Femme", pluriel: "Femmes", color: "#be185d", bg: "#fce7f3" },
+  { key: "Jeune", pluriel: "Jeunes", color: "#0f766e", bg: "#ccfbf1" },
+  { key: "Enfant", pluriel: "Enfants", color: "#b45309", bg: "#fef3c7" },
+];
+// Catégorie du membre (les fiches enregistrées avant l'ajout de la catégorie
+// sont classées d'après le sexe en attendant d'être complétées).
+function categorieDe(m) {
+  if (m.categorie) return m.categorie;
+  if (m.sexe === "Masculin") return "Homme";
+  if (m.sexe === "Féminin") return "Femme";
+  return "";
+}
+function categorieInfo(m) {
+  return CATEGORIES_MEMBRE.find(c => c.key === categorieDe(m));
+}
+function CategoriesCards({ membres }) {
+  return (
+    <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+      {CATEGORIES_MEMBRE.map(c => (
+        <StatCard key={c.key} label={c.pluriel} value={membres.filter(m => categorieDe(m) === c.key).length} tone={c.color} />
+      ))}
+    </div>
+  );
+}
 const SITUATIONS_MATRIMONIALES = ["Célibataire", "Marié(e)", "Fiancé(e)", "Veuf / Veuve", "Divorcé(e)"];
 const POSTES_COMITE = [
   "Pasteur titulaire",
@@ -3577,7 +3603,7 @@ function MembresAssemblees({ regions, members, saveMember, deleteMember, showToa
   const duLieu = members.filter(m => m.assemblee === assemblee);
   const comite = duLieu.filter(m => m.responsabilite).sort((a, b) => posteRang(a) - posteRang(b) || nomComplet(a).localeCompare(nomComplet(b)));
   const liste = duLieu
-    .filter(m => !filterSexe || m.sexe === filterSexe)
+    .filter(m => !filterSexe || categorieDe(m) === filterSexe)
     .filter(m => nomComplet(m).toLowerCase().includes(search.toLowerCase()) || (m.profession || "").toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => nomComplet(a).localeCompare(nomComplet(b)));
 
@@ -3604,7 +3630,7 @@ function MembresAssemblees({ regions, members, saveMember, deleteMember, showToa
   return (
     <div>
       <div style={{ fontSize: 11.5, color: "var(--ink-soft)", background: "#fff", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 12px", marginBottom: 14, lineHeight: 1.5 }}>
-        Choisissez une assemblée pour enregistrer ses membres (nom, prénom, sexe, âge, profession, situation matrimoniale, date du salut). Pour placer un membre dans le comité directeur, ouvrez sa fiche et indiquez sa responsabilité.
+        Choisissez une assemblée pour enregistrer ses membres (nom, prénom, catégorie, sexe, âge, profession, situation matrimoniale, date du salut). Pour placer un membre dans le comité directeur, ouvrez sa fiche et indiquez sa responsabilité.
       </div>
 
       <Field label="Assemblée">
@@ -3635,14 +3661,14 @@ function MembresAssemblees({ regions, members, saveMember, deleteMember, showToa
                   <UserPlus size={16} /> Ajouter
                 </button>
               </div>
-              <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-                {["", ...SEXES].map(s => (
+              <div style={{ display: "flex", gap: 6, marginBottom: 12, overflowX: "auto", paddingBottom: 2 }}>
+                {["", ...CATEGORIES_MEMBRE.map(c => c.key)].map(s => (
                   <button key={s || "tous"} onClick={() => setFilterSexe(s)} style={{
                     padding: "6px 12px", borderRadius: 999, fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap",
                     background: filterSexe === s ? "var(--primary)" : "#fff", color: filterSexe === s ? "#fff" : "var(--ink-soft)",
                     border: "1px solid var(--border)"
                   }}>
-                    {s ? `${s === "Masculin" ? "Hommes" : "Femmes"} (${duLieu.filter(m => m.sexe === s).length})` : `Tous (${duLieu.length})`}
+                    {s ? `${CATEGORIES_MEMBRE.find(c => c.key === s).pluriel} (${duLieu.filter(m => categorieDe(m) === s).length})` : `Tous (${duLieu.length})`}
                   </button>
                 ))}
               </div>
@@ -3710,7 +3736,8 @@ function MembresAssemblees({ regions, members, saveMember, deleteMember, showToa
 }
 
 function MembreCard({ m, onClick }) {
-  const details = [m.sexe, m.age ? `${m.age} ans` : "", m.situationMatrimoniale].filter(Boolean).join(" · ");
+  const cat = categorieInfo(m);
+  const details = [categorieDe(m), m.sexe, m.age ? `${m.age} ans` : "", m.situationMatrimoniale].filter(Boolean).join(" · ");
   return (
     <div onClick={onClick} style={{
       background: "#fff", border: "1px solid var(--border)", borderRadius: 11, padding: "10px 12px",
@@ -3718,7 +3745,7 @@ function MembreCard({ m, onClick }) {
     }}>
       <div style={{
         width: 34, height: 34, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-        background: m.sexe === "Féminin" ? "#fce7f3" : "#e0ecff", color: m.sexe === "Féminin" ? "#be185d" : "var(--primary)",
+        background: cat ? cat.bg : "var(--bg)", color: cat ? cat.color : "var(--ink-soft)",
         fontSize: 13, fontWeight: 700
       }}>
         {((m.nom || "?")[0] + (m.prenom || "")[0]).toUpperCase()}
@@ -3770,9 +3797,10 @@ function MembresStats({ membres, titre }) {
     <div>
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
         <StatCard label="Membres" value={total} tone="var(--primary)" />
-        <StatCard label="Hommes" value={membres.filter(m => m.sexe === "Masculin").length} tone="var(--primary)" />
-        <StatCard label="Femmes" value={membres.filter(m => m.sexe === "Féminin").length} tone="#be185d" />
+        <StatCard label="Masculin" value={membres.filter(m => m.sexe === "Masculin").length} tone="var(--primary)" />
+        <StatCard label="Féminin" value={membres.filter(m => m.sexe === "Féminin").length} tone="#be185d" />
       </div>
+      <CategoriesCards membres={membres} />
 
       <div style={box}>
         <div style={h}>Situation matrimoniale</div>
@@ -3809,9 +3837,8 @@ function MembresResumeNational({ regions, members, onChoose }) {
     <div>
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
         <StatCard label="Membres (pays)" value={total} tone="var(--primary)" />
-        <StatCard label="Hommes" value={members.filter(m => m.sexe === "Masculin").length} tone="var(--primary)" />
-        <StatCard label="Femmes" value={members.filter(m => m.sexe === "Féminin").length} tone="#be185d" />
       </div>
+      <CategoriesCards membres={members} />
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {lignes.map(l => (
           <div key={l.nom} onClick={() => onChoose(l.nom)} style={{
@@ -3842,6 +3869,12 @@ function MembreForm({ membre, regions, comite, onSave, onDelete, onClose }) {
   const [nom, setNom] = useState(membre.nom || "");
   const [prenom, setPrenom] = useState(membre.prenom || "");
   const [sexe, setSexe] = useState(membre.sexe || "");
+  const [categorie, setCategorie] = useState(categorieDe(membre));
+  function choisirCategorie(c) {
+    setCategorie(c);
+    if (c === "Homme") setSexe("Masculin");
+    if (c === "Femme") setSexe("Féminin");
+  }
   const [age, setAge] = useState(membre.age ?? "");
   const [profession, setProfession] = useState(membre.profession || "");
   const [situationMatrimoniale, setSituationMatrimoniale] = useState(membre.situationMatrimoniale || "");
@@ -3860,6 +3893,7 @@ function MembreForm({ membre, regions, comite, onSave, onDelete, onClose }) {
   async function handleSubmit() {
     if (!assemblee) { alert("Merci de choisir l'assemblée."); return; }
     if (!nom.trim() || !prenom.trim()) { alert("Merci de renseigner le nom et le prénom."); return; }
+    if (!categorie) { alert("Merci de choisir la catégorie (homme, femme, jeune ou enfant)."); return; }
     if (!sexe) { alert("Merci d'indiquer le sexe."); return; }
     const ageNum = String(age).trim() === "" ? "" : Number(age);
     if (ageNum !== "" && (isNaN(ageNum) || ageNum < 0 || ageNum > 120)) { alert("L'âge doit être un nombre entre 0 et 120."); return; }
@@ -3872,6 +3906,7 @@ function MembreForm({ membre, regions, comite, onSave, onDelete, onClose }) {
       assemblee,
       nom: nom.trim(),
       prenom: prenom.trim(),
+      categorie,
       sexe,
       age: ageNum,
       profession: profession.trim(),
@@ -3892,7 +3927,18 @@ function MembreForm({ membre, regions, comite, onSave, onDelete, onClose }) {
         <div style={{ flex: 1 }}><Field label="Nom"><input style={inputStyle} value={nom} onChange={e => setNom(e.target.value)} placeholder="Ex : OUEDRAOGO" /></Field></div>
         <div style={{ flex: 1 }}><Field label="Prénom(s)"><input style={inputStyle} value={prenom} onChange={e => setPrenom(e.target.value)} placeholder="Ex : Paul" /></Field></div>
       </div>
-      <Field label="Sexe">
+      <Field label="Catégorie">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          {CATEGORIES_MEMBRE.map(c => (
+            <button key={c.key} onClick={() => choisirCategorie(c.key)} style={{
+              padding: "10px 0", borderRadius: 9, fontSize: 13.5, fontWeight: 600,
+              border: `1.5px solid ${categorie === c.key ? c.color : "var(--border)"}`,
+              background: categorie === c.key ? c.color : "#fff", color: categorie === c.key ? "#fff" : "var(--ink)"
+            }}>{c.key}</button>
+          ))}
+        </div>
+      </Field>
+      {(categorie === "Jeune" || categorie === "Enfant") && <Field label="Sexe">
         <div style={{ display: "flex", gap: 8 }}>
           {SEXES.map(s => (
             <button key={s} onClick={() => setSexe(s)} style={{
@@ -3902,7 +3948,7 @@ function MembreForm({ membre, regions, comite, onSave, onDelete, onClose }) {
             }}>{s}</button>
           ))}
         </div>
-      </Field>
+      </Field>}
       <div style={{ display: "flex", gap: 8 }}>
         <div style={{ width: 100 }}><Field label="Âge"><input style={inputStyle} type="number" inputMode="numeric" min="0" max="120" value={age} onChange={e => setAge(e.target.value)} placeholder="Ex : 34" /></Field></div>
         <div style={{ flex: 1 }}>
@@ -7351,7 +7397,7 @@ function MembresNational({ regions, members }) {
   const filtres = members
     .filter(m => !region || regionDe[m.assemblee] === region)
     .filter(m => !assemblee || m.assemblee === assemblee)
-    .filter(m => !sexe || m.sexe === sexe)
+    .filter(m => !sexe || categorieDe(m) === sexe)
     .filter(m => !situation || m.situationMatrimoniale === situation)
     .filter(m => !comiteSeul || m.responsabilite)
     .filter(m => {
@@ -7365,9 +7411,9 @@ function MembresNational({ regions, members }) {
   const membresComite = members.filter(m => m.responsabilite).length;
 
   function exporterCSV() {
-    const entete = ["Région", "Assemblée", "Nom", "Prénom", "Sexe", "Âge", "Profession", "Situation matrimoniale", "Date du salut", "Téléphone", "Responsabilité au comité directeur"];
+    const entete = ["Région", "Assemblée", "Nom", "Prénom", "Catégorie", "Sexe", "Âge", "Profession", "Situation matrimoniale", "Date du salut", "Téléphone", "Responsabilité au comité directeur"];
     const lignes = filtres.map(m => [
-      regionDe[m.assemblee] || "", m.assemblee, m.nom, m.prenom, m.sexe, m.age, m.profession,
+      regionDe[m.assemblee] || "", m.assemblee, m.nom, m.prenom, categorieDe(m), m.sexe, m.age, m.profession,
       m.situationMatrimoniale, dateCourte(m.dateSalut), m.telephone, posteLibelle(m),
     ].map(csvCell).join(";"));
     const contenu = "﻿" + [entete.join(";"), ...lignes].join("\r\n");
@@ -7380,7 +7426,7 @@ function MembresNational({ regions, members }) {
   }
 
   function partagerSynthese() {
-    const l = ["📊 MEMBRES — MISSION PAROLE DE VIE BURKINA", `Total : ${total} membres (${members.filter(m => m.sexe === "Masculin").length} hommes, ${members.filter(m => m.sexe === "Féminin").length} femmes)`, ""];
+    const l = ["📊 MEMBRES — MISSION PAROLE DE VIE BURKINA", `Total : ${total} membres (${CATEGORIES_MEMBRE.map(c => `${members.filter(m => categorieDe(m) === c.key).length} ${c.pluriel.toLowerCase()}`).join(", ")})`, ""];
     regions.forEach(r => {
       if (r.assemblees.length === 0) return;
       l.push(`📍 ${r.nom}`);
@@ -7404,13 +7450,10 @@ function MembresNational({ regions, members }) {
     <div>
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
         <StatCard label="Membres" value={total} tone="var(--primary)" />
-        <StatCard label="Hommes" value={members.filter(m => m.sexe === "Masculin").length} tone="var(--primary)" />
-        <StatCard label="Femmes" value={members.filter(m => m.sexe === "Féminin").length} tone="#be185d" />
-      </div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
         <StatCard label="Assemblées renseignées" value={`${assembleesAvecMembres}/${assembleesConnues.length}`} tone="var(--accent-dark)" />
         <StatCard label="Membres des comités" value={membresComite} tone="var(--accent-dark)" />
       </div>
+      <CategoriesCards membres={members} />
 
       <div style={{ display: "flex", gap: 6, marginBottom: 14, background: "#fff", padding: 4, borderRadius: 11, border: "1px solid var(--border)" }}>
         <button onClick={() => setVue("synthese")} style={segButtonStyle(vue === "synthese")}>Par assemblée</button>
@@ -7434,7 +7477,7 @@ function MembresNational({ regions, members }) {
                 <div style={{ overflowX: "auto" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead>
-                      <tr><th style={th}>Assemblée</th><th style={th}>Total</th><th style={th}>H</th><th style={th}>F</th><th style={th}>Comité</th></tr>
+                      <tr><th style={th}>Assemblée</th><th style={th}>Total</th><th style={th}>H</th><th style={th}>F</th><th style={th}>J</th><th style={th}>E</th><th style={th}>Comité</th></tr>
                     </thead>
                     <tbody>
                       {r.assemblees.map(a => {
@@ -7444,8 +7487,7 @@ function MembresNational({ regions, members }) {
                           <tr key={a.id} onClick={() => { setAssemblee(a.nom); setRegion(""); setVue("liste"); }} style={{ cursor: "pointer" }}>
                             <td style={{ ...td, fontWeight: 700 }}>{a.nom}</td>
                             <td style={td}>{ms.length}</td>
-                            <td style={td}>{ms.filter(m => m.sexe === "Masculin").length}</td>
-                            <td style={td}>{ms.filter(m => m.sexe === "Féminin").length}</td>
+                            {CATEGORIES_MEMBRE.map(c => <td key={c.key} style={td}>{ms.filter(m => categorieDe(m) === c.key).length}</td>)}
                             <td style={{ ...td, color: c ? "var(--accent-dark)" : "var(--danger)", fontWeight: 600 }}>{c || "—"}</td>
                           </tr>
                         );
@@ -7484,8 +7526,7 @@ function MembresNational({ regions, members }) {
           </div>
           <div style={{ display: "flex", gap: 6, marginBottom: 12, overflowX: "auto", paddingBottom: 2 }}>
             <button onClick={() => setSexe("")} style={chip(!sexe)}>Tous</button>
-            <button onClick={() => setSexe("Masculin")} style={chip(sexe === "Masculin")}>Hommes</button>
-            <button onClick={() => setSexe("Féminin")} style={chip(sexe === "Féminin")}>Femmes</button>
+            {CATEGORIES_MEMBRE.map(c => <button key={c.key} onClick={() => setSexe(c.key)} style={chip(sexe === c.key)}>{c.pluriel}</button>)}
             <button onClick={() => setComiteSeul(!comiteSeul)} style={chip(comiteSeul)}>Comité seulement</button>
           </div>
 
@@ -7507,7 +7548,7 @@ function MembresNational({ regions, members }) {
                     <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--primary)", background: "var(--bg)", borderRadius: 6, padding: "2px 7px", whiteSpace: "nowrap", alignSelf: "flex-start" }}>{m.assemblee}</div>
                   </div>
                   <div style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>
-                    {[m.sexe, m.age !== "" && m.age != null ? `${m.age} ans` : "", m.situationMatrimoniale, m.profession].filter(Boolean).join(" · ")}
+                    {[categorieDe(m), m.sexe, m.age !== "" && m.age != null ? `${m.age} ans` : "", m.situationMatrimoniale, m.profession].filter(Boolean).join(" · ")}
                   </div>
                   {m.dateSalut && <div style={{ fontSize: 11, color: "var(--ink-soft)" }}>Salut : {dateCourte(m.dateSalut)}</div>}
                   {m.responsabilite && (
