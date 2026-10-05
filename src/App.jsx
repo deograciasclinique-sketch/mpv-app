@@ -1081,6 +1081,7 @@ export default function App() {
             deptBilans={deptBilans} saveDeptBilan={saveDeptBilan} deleteDeptBilan={deleteDeptBilan}
             deptCodes={deptCodes} saveDeptCode={saveDeptCode}
             leadership={leadership} pastors={pastors}
+            regions={regions} members={assemblyMembers}
             unlocked={coordUnlocked} onUnlock={unlockCoord} onLock={lockCoord}
             natUnlocked={coordNatUnlocked} onUnlockNat={unlockCoordNat} onLockNat={lockCoordNat}
             showToast={showToast}
@@ -7268,7 +7269,7 @@ function CoordLockPanel({ leadership, unlocked, onUnlock, onLock, pinField = "pi
   );
 }
 
-function Coordination({ coordSeminars, setCoordSeminars, seminars, setSeminars, deptHeads, setDeptHeads, actionPlans, setActionPlans, plansAnnuels, setPlansAnnuels, deptPlans, saveDeptPlan, deleteDeptPlan, deptBilans, saveDeptBilan, deleteDeptBilan, deptCodes, saveDeptCode, leadership, pastors, unlocked, onUnlock, onLock, natUnlocked, onUnlockNat, onLockNat, showToast }) {
+function Coordination({ coordSeminars, setCoordSeminars, seminars, setSeminars, deptHeads, setDeptHeads, actionPlans, setActionPlans, plansAnnuels, setPlansAnnuels, deptPlans, saveDeptPlan, deleteDeptPlan, deptBilans, saveDeptBilan, deleteDeptBilan, deptCodes, saveDeptCode, leadership, pastors, regions, members, unlocked, onUnlock, onLock, natUnlocked, onUnlockNat, onLockNat, showToast }) {
   const [subTab, setSubTab] = useState("plansdept");
 
   return (
@@ -7279,14 +7280,17 @@ function Coordination({ coordSeminars, setCoordSeminars, seminars, setSeminars, 
         Pour programmer un séminaire ou un autre programme national, direction les onglets « Séminaires » ou « Programme » → section Coordination.
       </div>
 
-      {subTab !== "plansdept" && <CoordLockPanel leadership={leadership} unlocked={unlocked} onUnlock={onUnlock} onLock={onLock} />}
+      {subTab !== "plansdept" && subTab !== "membres" && <CoordLockPanel leadership={leadership} unlocked={unlocked} onUnlock={onUnlock} onLock={onLock} />}
 
       <div style={{ display: "flex", gap: 6, marginBottom: 16, background: "#fff", padding: 4, borderRadius: 11, border: "1px solid var(--border)", flexWrap: "wrap" }}>
         <button onClick={() => setSubTab("plansdept")} style={segButtonStyle(subTab === "plansdept")}>Plans départements</button>
         <button onClick={() => setSubTab("responsables")} style={segButtonStyle(subTab === "responsables")}>Responsables</button>
         <button onClick={() => setSubTab("validation")} style={segButtonStyle(subTab === "validation")}>Validation</button>
         <button onClick={() => setSubTab("plans")} style={segButtonStyle(subTab === "plans")}>Plan national</button>
+        <button onClick={() => setSubTab("membres")} style={segButtonStyle(subTab === "membres")}>Membres</button>
       </div>
+
+      {subTab === "membres" && <MembresNational regions={regions} members={members} />}
 
       {subTab === "plansdept" && (
         <PlansDepartements
@@ -7312,6 +7316,249 @@ function Coordination({ coordSeminars, setCoordSeminars, seminars, setSeminars, 
       {subTab === "plans" && (
         <ActionPlans actionPlans={actionPlans} setActionPlans={setActionPlans} plansAnnuels={plansAnnuels} setPlansAnnuels={setPlansAnnuels} unlocked={unlocked} showToast={showToast} />
       )}
+    </div>
+  );
+}
+
+/* --- Coordination : vue générale des membres de toutes les assemblées -- */
+
+function csvCell(v) {
+  const t = String(v ?? "");
+  return /[";\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+}
+function dateCourte(d) {
+  return d ? new Date(d + "T00:00:00").toLocaleDateString("fr-FR") : "";
+}
+
+function MembresNational({ regions, members }) {
+  const [vue, setVue] = useState("synthese"); // "synthese" | "liste" | "comites" | "stats"
+  const [region, setRegion] = useState("");
+  const [assemblee, setAssemblee] = useState("");
+  const [sexe, setSexe] = useState("");
+  const [situation, setSituation] = useState("");
+  const [comiteSeul, setComiteSeul] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const regionDe = useMemo(() => {
+    const map = {};
+    regions.forEach(r => r.assemblees.forEach(a => { map[a.nom] = r.nom; }));
+    return map;
+  }, [regions]);
+
+  const assembleesConnues = regions.flatMap(r => r.assemblees.map(a => ({ nom: a.nom, region: r.nom })));
+  const assembleesDuFiltre = assembleesConnues.filter(a => !region || a.region === region);
+
+  const filtres = members
+    .filter(m => !region || regionDe[m.assemblee] === region)
+    .filter(m => !assemblee || m.assemblee === assemblee)
+    .filter(m => !sexe || m.sexe === sexe)
+    .filter(m => !situation || m.situationMatrimoniale === situation)
+    .filter(m => !comiteSeul || m.responsabilite)
+    .filter(m => {
+      const q = search.toLowerCase();
+      return !q || nomComplet(m).toLowerCase().includes(q) || (m.profession || "").toLowerCase().includes(q) || posteLibelle(m).toLowerCase().includes(q);
+    })
+    .sort((a, b) => (a.assemblee || "").localeCompare(b.assemblee || "") || nomComplet(a).localeCompare(nomComplet(b)));
+
+  const total = members.length;
+  const assembleesAvecMembres = new Set(members.map(m => m.assemblee)).size;
+  const membresComite = members.filter(m => m.responsabilite).length;
+
+  function exporterCSV() {
+    const entete = ["Région", "Assemblée", "Nom", "Prénom", "Sexe", "Âge", "Profession", "Situation matrimoniale", "Date du salut", "Téléphone", "Responsabilité au comité directeur"];
+    const lignes = filtres.map(m => [
+      regionDe[m.assemblee] || "", m.assemblee, m.nom, m.prenom, m.sexe, m.age, m.profession,
+      m.situationMatrimoniale, dateCourte(m.dateSalut), m.telephone, posteLibelle(m),
+    ].map(csvCell).join(";"));
+    const contenu = "﻿" + [entete.join(";"), ...lignes].join("\r\n");
+    const url = URL.createObjectURL(new Blob([contenu], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `membres-mpv-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+
+  function partagerSynthese() {
+    const l = ["📊 MEMBRES — MISSION PAROLE DE VIE BURKINA", `Total : ${total} membres (${members.filter(m => m.sexe === "Masculin").length} hommes, ${members.filter(m => m.sexe === "Féminin").length} femmes)`, ""];
+    regions.forEach(r => {
+      if (r.assemblees.length === 0) return;
+      l.push(`📍 ${r.nom}`);
+      r.assemblees.forEach(a => {
+        const ms = members.filter(m => m.assemblee === a.nom);
+        l.push(`• ${a.nom} : ${ms.length} membre${ms.length > 1 ? "s" : ""} — comité : ${ms.filter(m => m.responsabilite).length}`);
+      });
+      l.push("");
+    });
+    window.open(shareWhatsappLink(l.join("\n")), "_blank");
+  }
+
+  const chip = (actif) => ({
+    padding: "6px 12px", borderRadius: 999, fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap",
+    background: actif ? "var(--primary)" : "#fff", color: actif ? "#fff" : "var(--ink-soft)", border: "1px solid var(--border)"
+  });
+  const th = { textAlign: "left", padding: "7px 6px", fontSize: 10.5, color: "var(--ink-soft)", fontWeight: 700, borderBottom: "1px solid var(--border)", whiteSpace: "nowrap" };
+  const td = { padding: "7px 6px", fontSize: 12, borderBottom: "1px solid var(--border)" };
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <StatCard label="Membres" value={total} tone="var(--primary)" />
+        <StatCard label="Hommes" value={members.filter(m => m.sexe === "Masculin").length} tone="var(--primary)" />
+        <StatCard label="Femmes" value={members.filter(m => m.sexe === "Féminin").length} tone="#be185d" />
+      </div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+        <StatCard label="Assemblées renseignées" value={`${assembleesAvecMembres}/${assembleesConnues.length}`} tone="var(--accent-dark)" />
+        <StatCard label="Membres des comités" value={membresComite} tone="var(--accent-dark)" />
+      </div>
+
+      <div style={{ display: "flex", gap: 6, marginBottom: 14, background: "#fff", padding: 4, borderRadius: 11, border: "1px solid var(--border)" }}>
+        <button onClick={() => setVue("synthese")} style={segButtonStyle(vue === "synthese")}>Par assemblée</button>
+        <button onClick={() => setVue("liste")} style={segButtonStyle(vue === "liste")}>Tous les membres</button>
+        <button onClick={() => setVue("comites")} style={segButtonStyle(vue === "comites")}>Comités</button>
+        <button onClick={() => setVue("stats")} style={segButtonStyle(vue === "stats")}>Statistiques</button>
+      </div>
+
+      {vue === "synthese" && (
+        <div>
+          {regions.filter(r => r.assemblees.length > 0).map(r => {
+            const msRegion = members.filter(m => regionDe[m.assemblee] === r.nom);
+            return (
+              <div key={r.id} style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 12, padding: "10px 12px", marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13.5, fontWeight: 700, color: "var(--primary)" }}>
+                    <MapPin size={13} color="var(--accent-dark)" /> {r.nom}
+                  </div>
+                  <div style={{ fontSize: 11.5, fontWeight: 700 }}>{msRegion.length} membre{msRegion.length > 1 ? "s" : ""}</div>
+                </div>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr><th style={th}>Assemblée</th><th style={th}>Total</th><th style={th}>H</th><th style={th}>F</th><th style={th}>Comité</th></tr>
+                    </thead>
+                    <tbody>
+                      {r.assemblees.map(a => {
+                        const ms = members.filter(m => m.assemblee === a.nom);
+                        const c = ms.filter(m => m.responsabilite).length;
+                        return (
+                          <tr key={a.id} onClick={() => { setAssemblee(a.nom); setRegion(""); setVue("liste"); }} style={{ cursor: "pointer" }}>
+                            <td style={{ ...td, fontWeight: 700 }}>{a.nom}</td>
+                            <td style={td}>{ms.length}</td>
+                            <td style={td}>{ms.filter(m => m.sexe === "Masculin").length}</td>
+                            <td style={td}>{ms.filter(m => m.sexe === "Féminin").length}</td>
+                            <td style={{ ...td, color: c ? "var(--accent-dark)" : "var(--danger)", fontWeight: 600 }}>{c || "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })}
+          <PrimaryButton onClick={partagerSynthese} icon={Share2} full>Partager la synthèse sur WhatsApp</PrimaryButton>
+        </div>
+      )}
+
+      {vue === "liste" && (
+        <div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <select style={{ ...inputStyle, fontSize: 13, flex: 1 }} value={region} onChange={e => { setRegion(e.target.value); setAssemblee(""); }}>
+              <option value="">Toutes les régions</option>
+              {regions.filter(r => r.assemblees.length > 0).map(r => <option key={r.id} value={r.nom}>{r.nom}</option>)}
+            </select>
+            <select style={{ ...inputStyle, fontSize: 13, flex: 1 }} value={assemblee} onChange={e => setAssemblee(e.target.value)}>
+              <option value="">Toutes les assemblées</option>
+              {assembleesDuFiltre.map(a => <option key={a.nom} value={a.nom}>{a.nom}</option>)}
+            </select>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <select style={{ ...inputStyle, fontSize: 13, flex: 1 }} value={situation} onChange={e => setSituation(e.target.value)}>
+              <option value="">Toute situation matrimoniale</option>
+              {SITUATIONS_MATRIMONIALES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div style={{ position: "relative", marginBottom: 8 }}>
+            <Search size={14} style={{ position: "absolute", left: 10, top: 12.5, color: "var(--ink-soft)" }} />
+            <input style={{ ...inputStyle, paddingLeft: 30 }} placeholder="Nom, profession ou responsabilité…" value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+          <div style={{ display: "flex", gap: 6, marginBottom: 12, overflowX: "auto", paddingBottom: 2 }}>
+            <button onClick={() => setSexe("")} style={chip(!sexe)}>Tous</button>
+            <button onClick={() => setSexe("Masculin")} style={chip(sexe === "Masculin")}>Hommes</button>
+            <button onClick={() => setSexe("Féminin")} style={chip(sexe === "Féminin")}>Femmes</button>
+            <button onClick={() => setComiteSeul(!comiteSeul)} style={chip(comiteSeul)}>Comité seulement</button>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <div style={{ fontSize: 12, color: "var(--ink-soft)", fontWeight: 600 }}>{filtres.length} membre{filtres.length > 1 ? "s" : ""}</div>
+            <button onClick={exporterCSV} disabled={filtres.length === 0} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 700, color: "var(--primary)" }}>
+              <FileText size={14} /> Télécharger (Excel)
+            </button>
+          </div>
+
+          {filtres.length === 0 ? (
+            <EmptyState icon={Users} text="Aucun membre ne correspond à ces critères." />
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+              {filtres.map(m => (
+                <div key={m.id} style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 11, padding: "9px 12px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 700 }}>{nomComplet(m)}</div>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--primary)", background: "var(--bg)", borderRadius: 6, padding: "2px 7px", whiteSpace: "nowrap", alignSelf: "flex-start" }}>{m.assemblee}</div>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>
+                    {[m.sexe, m.age !== "" && m.age != null ? `${m.age} ans` : "", m.situationMatrimoniale, m.profession].filter(Boolean).join(" · ")}
+                  </div>
+                  {m.dateSalut && <div style={{ fontSize: 11, color: "var(--ink-soft)" }}>Salut : {dateCourte(m.dateSalut)}</div>}
+                  {m.responsabilite && (
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--accent-dark)", marginTop: 2, display: "flex", alignItems: "center", gap: 3 }}>
+                      <ShieldCheck size={11} /> {posteLibelle(m)}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {vue === "comites" && (
+        <div>
+          {assembleesConnues.map(a => {
+            const comite = members.filter(m => m.assemblee === a.nom && m.responsabilite).sort((x, y) => posteRang(x) - posteRang(y));
+            return (
+              <div key={a.nom} style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 12, padding: "10px 12px", marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: comite.length ? 6 : 0 }}>
+                  <div>
+                    <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--primary)" }}>{a.nom}</span>
+                    <span style={{ fontSize: 11, color: "var(--ink-soft)" }}> · {a.region}</span>
+                  </div>
+                  {comite.length > 0 && (
+                    <button onClick={() => window.open(shareWhatsappLink(comiteToText(a.nom, comite)), "_blank")} style={{ color: "#1f9d55", display: "flex", padding: 3 }}>
+                      <Share2 size={14} />
+                    </button>
+                  )}
+                </div>
+                {comite.length === 0 ? (
+                  <div style={{ fontSize: 11.5, color: "var(--danger)", marginTop: 3 }}>Comité directeur non composé</div>
+                ) : comite.map(m => (
+                  <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderTop: "1px solid var(--border)" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--accent-dark)" }}>{posteLibelle(m)}</div>
+                      <div style={{ fontSize: 12.5, fontWeight: 600 }}>{nomComplet(m)}</div>
+                    </div>
+                    {m.telephone && (
+                      <a href={`tel:${m.telephone}`} style={{ color: "var(--primary)", display: "flex", padding: 4 }}><Phone size={14} /></a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {vue === "stats" && <MembresStats membres={members} titre="National" />}
     </div>
   );
 }
