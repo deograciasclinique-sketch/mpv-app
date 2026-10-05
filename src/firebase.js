@@ -1,5 +1,8 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc, runTransaction } from "firebase/firestore";
+import {
+  getFirestore, doc, getDoc, setDoc, runTransaction, collection, getDocs, deleteDoc,
+  query, where, getCountFromServer, writeBatch,
+} from "firebase/firestore";
 
 /*
  * CONFIGURATION DE VOTRE PROJET FIREBASE (lwm-burkina).
@@ -63,5 +66,94 @@ export async function updateKey(key, fallback, updater) {
   } catch (e) {
     console.error("Erreur de mise à jour Firestore:", key, e);
     return null;
+  }
+}
+
+// ------------------------------------------------------------------
+// MEMBRES DES ASSEMBLÉES : une fiche Firestore par membre.
+// Les fiches sont rangées dans mpv-data/assembly-members/items/{id}
+// (couvert par les règles existantes de "mpv-data"), ce qui supprime la
+// limite de 1 Mo d'un document unique : le nombre de membres n'est plus limité.
+// Les champs "assemblee", "categorie" et "comite" sont copiés en clair pour
+// pouvoir filtrer et compter côté serveur.
+// ------------------------------------------------------------------
+const membresCol = () => collection(db, "mpv-data", "assembly-members", "items");
+
+function membreDoc(m) {
+  return {
+    assemblee: m.assemblee || "",
+    categorie: m.categorie || "",
+    comite: !!m.responsabilite,
+    value: JSON.stringify(m),
+    updatedAt: Date.now(),
+  };
+}
+
+// assemblee = nom d'une assemblée, ou null pour tout le pays.
+export async function loadMembres(assemblee) {
+  try {
+    const q = assemblee ? query(membresCol(), where("assemblee", "==", assemblee)) : membresCol();
+    const snap = await getDocs(q);
+    return snap.docs.map(d => JSON.parse(d.data().value));
+  } catch (e) {
+    console.error("Erreur de chargement des membres:", e);
+    return null;
+  }
+}
+
+export async function saveMembre(m) {
+  try {
+    await setDoc(doc(membresCol(), m.id), membreDoc(m));
+    return true;
+  } catch (e) {
+    console.error("Erreur d'enregistrement du membre:", e);
+    return false;
+  }
+}
+
+export async function deleteMembre(id) {
+  try {
+    await deleteDoc(doc(membresCol(), id));
+    return true;
+  } catch (e) {
+    console.error("Erreur de suppression du membre:", e);
+    return false;
+  }
+}
+
+// Compte côté serveur (très peu coûteux, sans télécharger les fiches).
+// filtres : { assemblee?, categorie?, comite? }
+export async function countMembres(filtres = {}) {
+  try {
+    const conds = Object.entries(filtres).map(([k, v]) => where(k, "==", v));
+    const snap = await getCountFromServer(query(membresCol(), ...conds));
+    return snap.data().count;
+  } catch (e) {
+    console.error("Erreur de comptage des membres:", e);
+    return null;
+  }
+}
+
+// Ancien format : tous les membres dans une seule clé "assembly-members".
+// Recopie chaque membre dans sa propre fiche, puis vide l'ancienne liste.
+export async function migrerAnciensMembres(normaliser) {
+  try {
+    const ref = doc(db, "mpv-data", "assembly-members");
+    const snap = await getDoc(ref);
+    const anciens = snap.exists() && snap.data().value ? JSON.parse(snap.data().value) : [];
+    if (!Array.isArray(anciens) || anciens.length === 0) return 0;
+    for (let i = 0; i < anciens.length; i += 400) {
+      const batch = writeBatch(db);
+      anciens.slice(i, i + 400).forEach(m => {
+        const n = normaliser ? normaliser(m) : m;
+        batch.set(doc(membresCol(), n.id), membreDoc(n));
+      });
+      await batch.commit();
+    }
+    await setDoc(ref, { value: "[]", migre: true, updatedAt: Date.now() });
+    return anciens.length;
+  } catch (e) {
+    console.error("Erreur de migration des membres:", e);
+    return 0;
   }
 }

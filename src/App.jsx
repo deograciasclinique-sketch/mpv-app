@@ -8,7 +8,7 @@ import {
   Menu, QrCode, Smartphone, Megaphone, UserPlus, CheckSquare, Square, RefreshCw, Mic, MicOff, ImagePlus, ClipboardCheck
 } from "lucide-react";
 import QRCode from "qrcode";
-import { loadKey, saveKey, updateKey } from "./firebase.js";
+import { loadKey, saveKey, updateKey, loadMembres, saveMembre, deleteMembre, countMembres, migrerAnciensMembres } from "./firebase.js";
 import { newVisioLink, canEmbedVisio, VISIO_SERVER } from "./visio.js";
 import { RejoindreVisio, BadgeReunion, RappelsVisio } from "./VisioRoom.jsx";
 
@@ -853,7 +853,6 @@ export default function App() {
   const [deptBilans, setDeptBilans] = useState([]);
   const [deptCodes, setDeptCodes] = useState({});
   const [annonces, setAnnonces] = useState([]);
-  const [assemblyMembers, setAssemblyMembers] = useState([]);
   const [coordUnlocked, setCoordUnlocked] = useState(false);
   const [coordNatUnlocked, setCoordNatUnlocked] = useState(false);
   const [toast, setToast] = useState(null);
@@ -884,7 +883,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [r, p, s, l, wp, sr, cs, dh, ap, br, mi, pa, ph, fr, ar, er, dpl, dbi, dco, ann, mem] = await Promise.all([
+      const [r, p, s, l, wp, sr, cs, dh, ap, br, mi, pa, ph, fr, ar, er, dpl, dbi, dco, ann] = await Promise.all([
         loadKey("regions-assemblies", REGIONS_DEFAULT),
         loadKey("pastors-directory", PASTORS_DEFAULT),
         loadKey("seminars-list", []),
@@ -905,7 +904,6 @@ export default function App() {
         loadKey("dept-bilans", []),
         loadKey("dept-codes", {}),
         loadKey("annonces", []),
-        loadKey("assembly-members", []),
       ]);
       const pWithPhotos = p.map(x => ({ ...x, photo: (ph && ph[x.id]) || x.photo || null }));
       setRegions(r); setPastors(pWithPhotos); setPastorsPhotos(ph || {}); setSeminars(s); setLeadership(l);
@@ -914,7 +912,6 @@ export default function App() {
       setBibleReports(br); setMissionaries(mi); setPlansAnnuels(pa);
       setFinanceReports(fr); setActivityReports(ar); setExpenseReports(er);
       setDeptPlans(dpl); setDeptBilans(dbi); setDeptCodes(dco || {}); setAnnonces(ann || []);
-      setAssemblyMembers(Array.isArray(mem) ? mem : []);
       setLoading(false);
     })();
   }, []);
@@ -981,9 +978,11 @@ export default function App() {
   const deleteDeptBilan = (entry) => upsertShared("dept-bilans", setDeptBilans, entry, true);
   const saveAnnonce = (entry) => upsertShared("annonces", setAnnonces, entry, false);
   const deleteAnnonce = (entry) => upsertShared("annonces", setAnnonces, entry, true);
-  // Membres des assemblées : plusieurs assemblées peuvent saisir en même temps.
-  const saveMember = (entry) => upsertShared("assembly-members", setAssemblyMembers, entry, false);
-  const deleteMember = (entry) => upsertShared("assembly-members", setAssemblyMembers, entry, true);
+  // Membres des assemblées : passage unique de l'ancien format (une seule liste)
+  // vers une fiche par membre.
+  useEffect(() => {
+    migrerAnciensMembres(m => ({ ...m, categorie: categorieDe(m) }));
+  }, []);
   async function saveDeptCode(dept, code) {
     const next = await updateKey("dept-codes", {}, (cur) => ({ ...(cur || {}), [dept]: code }));
     if (next) { setDeptCodes(next); return true; }
@@ -1060,7 +1059,6 @@ export default function App() {
             pastors={pastors} setPastors={persistPastors}
             regions={regions} setRegions={persistRegions}
             missionaries={missionaries} setMissionaries={persistMissionaries}
-            members={assemblyMembers} saveMember={saveMember} deleteMember={deleteMember}
             showToast={showToast}
           />
         )}
@@ -1081,7 +1079,7 @@ export default function App() {
             deptBilans={deptBilans} saveDeptBilan={saveDeptBilan} deleteDeptBilan={deleteDeptBilan}
             deptCodes={deptCodes} saveDeptCode={saveDeptCode}
             leadership={leadership} pastors={pastors}
-            regions={regions} members={assemblyMembers}
+            regions={regions}
             unlocked={coordUnlocked} onUnlock={unlockCoord} onLock={lockCoord}
             natUnlocked={coordNatUnlocked} onUnlockNat={unlockCoordNat} onLockNat={lockCoordNat}
             showToast={showToast}
@@ -3013,7 +3011,7 @@ function SeminarForm({ seminar, pastors, regions, onSave, onDelete, onClose }) {
 /*  RÉPERTOIRE (Pasteurs & prédicateurs / Régions & assemblées)        */
 /* ------------------------------------------------------------------ */
 
-function Repertoire({ pastors, setPastors, regions, setRegions, missionaries, setMissionaries, members, saveMember, deleteMember, showToast }) {
+function Repertoire({ pastors, setPastors, regions, setRegions, missionaries, setMissionaries, showToast }) {
   const [subTab, setSubTab] = useState("pasteurs");
 
   return (
@@ -3050,7 +3048,7 @@ function Repertoire({ pastors, setPastors, regions, setRegions, missionaries, se
         <RegionsView regions={regions} setRegions={setRegions} showToast={showToast} />
       )}
       {subTab === "membres" && (
-        <MembresAssemblees regions={regions} members={members} saveMember={saveMember} deleteMember={deleteMember} showToast={showToast} />
+        <MembresAssemblees regions={regions} showToast={showToast} />
       )}
       {subTab === "missionnaires" && (
         <MissionnairesAfrique missionaries={missionaries} setMissionaries={setMissionaries} showToast={showToast} />
@@ -3593,14 +3591,61 @@ function comiteToText(assemblee, comite) {
   return lignes.join("\n");
 }
 
-function MembresAssemblees({ regions, members, saveMember, deleteMember, showToast }) {
+// Charge les membres à la demande : d'une assemblée (nom), de tout le pays (null),
+// ou rien (undefined). Chaque membre est une fiche séparée dans Firestore.
+function useMembres(assemblee, showToast) {
+  const [membres, setMembres] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [erreur, setErreur] = useState(false);
+
+  async function charger() {
+    if (assemblee === undefined) { setMembres([]); return; }
+    setLoading(true); setErreur(false);
+    const list = await loadMembres(assemblee);
+    if (list === null) { setErreur(true); setMembres([]); } else setMembres(list);
+    setLoading(false);
+  }
+  useEffect(() => { charger(); }, [assemblee]);
+
+  async function save(m) {
+    const ok = await saveMembre(m);
+    if (!ok) { showToast && showToast("⚠ Échec de l'enregistrement — réessayez (vérifiez la connexion)"); return false; }
+    setMembres(list => {
+      const sans = list.filter(x => x.id !== m.id);
+      return assemblee && m.assemblee !== assemblee ? sans : [...sans, m];
+    });
+    return true;
+  }
+  async function remove(m) {
+    const ok = await deleteMembre(m.id);
+    if (!ok) { showToast && showToast("⚠ Échec de la suppression — réessayez (vérifiez la connexion)"); return false; }
+    setMembres(list => list.filter(x => x.id !== m.id));
+    return true;
+  }
+  return { membres, loading, erreur, recharger: charger, save, remove };
+}
+
+function ChargementMembres({ loading, erreur, recharger }) {
+  if (loading) return <div style={{ fontSize: 12.5, color: "var(--ink-soft)", textAlign: "center", padding: "26px 0" }}>Chargement des membres…</div>;
+  if (erreur) return (
+    <div style={{ fontSize: 12.5, color: "var(--danger)", textAlign: "center", padding: "20px 0" }}>
+      Impossible de charger les membres (vérifiez la connexion).
+      <button onClick={recharger} style={{ display: "flex", alignItems: "center", gap: 5, margin: "10px auto 0", color: "var(--primary)", fontWeight: 700, fontSize: 12.5 }}>
+        <RefreshCw size={13} /> Réessayer
+      </button>
+    </div>
+  );
+  return null;
+}
+
+function MembresAssemblees({ regions, showToast }) {
   const [assemblee, setAssemblee] = useState("");
+  const { membres: duLieu, loading, erreur, recharger, save, remove } = useMembres(assemblee || undefined, showToast);
   const [vue, setVue] = useState("membres"); // "membres" | "comite" | "stats"
   const [editing, setEditing] = useState(null);
   const [search, setSearch] = useState("");
   const [filterSexe, setFilterSexe] = useState("");
 
-  const duLieu = members.filter(m => m.assemblee === assemblee);
   const comite = duLieu.filter(m => m.responsabilite).sort((a, b) => posteRang(a) - posteRang(b) || nomComplet(a).localeCompare(nomComplet(b)));
   const liste = duLieu
     .filter(m => !filterSexe || categorieDe(m) === filterSexe)
@@ -3608,15 +3653,15 @@ function MembresAssemblees({ regions, members, saveMember, deleteMember, showToa
     .sort((a, b) => nomComplet(a).localeCompare(nomComplet(b)));
 
   async function handleSave(m) {
-    const isNew = !members.some(x => x.id === m.id);
-    const ok = await saveMember(m);
+    const isNew = !duLieu.some(x => x.id === m.id);
+    const ok = await save(m);
     if (ok) {
       setEditing(null);
       showToast(isNew ? "Membre ajouté" : "Fiche mise à jour");
     }
   }
   async function handleDelete(m) {
-    const ok = await deleteMember(m);
+    const ok = await remove(m);
     if (ok) {
       setEditing(null);
       showToast("Membre retiré");
@@ -3638,7 +3683,9 @@ function MembresAssemblees({ regions, members, saveMember, deleteMember, showToa
       </Field>
 
       {!assemblee ? (
-        <MembresResumeNational regions={regions} members={members} onChoose={setAssemblee} />
+        <MembresResumeNational regions={regions} onChoose={setAssemblee} />
+      ) : (loading || erreur) ? (
+        <ChargementMembres loading={loading} erreur={erreur} recharger={recharger} />
       ) : (
         <>
           <div style={{ display: "flex", gap: 6, marginBottom: 14, background: "#fff", padding: 4, borderRadius: 11, border: "1px solid var(--border)" }}>
@@ -3725,7 +3772,7 @@ function MembresAssemblees({ regions, members, saveMember, deleteMember, showToa
         <MembreForm
           membre={editing}
           regions={regions}
-          comite={members.filter(x => x.assemblee === (editing.assemblee || assemblee) && x.responsabilite && x.id !== editing.id)}
+          comite={duLieu.filter(x => x.assemblee === (editing.assemblee || assemblee) && x.responsabilite && x.id !== editing.id)}
           onSave={handleSave}
           onDelete={handleDelete}
           onClose={() => setEditing(null)}
@@ -3827,37 +3874,66 @@ function MembresStats({ membres, titre }) {
   );
 }
 
-function MembresResumeNational({ regions, members, onChoose }) {
-  const lignes = regions.flatMap(r => r.assemblees.map(a => {
-    const ms = members.filter(m => m.assemblee === a.nom);
-    return { nom: a.nom, region: r.nom, total: ms.length, comite: ms.filter(m => m.responsabilite).length };
-  }));
-  const total = members.length;
+function MembresResumeNational({ regions, onChoose }) {
+  // Les chiffres sont comptés directement par le serveur : rien n'est téléchargé,
+  // ce qui reste rapide même avec des milliers de membres.
+  const [stats, setStats] = useState(null);
+  const assemblees = regions.flatMap(r => r.assemblees.map(a => ({ nom: a.nom, region: r.nom })));
+  const cle = assemblees.map(a => a.nom).join("|");
+
+  useEffect(() => {
+    let annule = false;
+    (async () => {
+      const [total, ...reste] = await Promise.all([
+        countMembres(),
+        ...CATEGORIES_MEMBRE.map(c => countMembres({ categorie: c.key })),
+        ...assemblees.map(a => countMembres({ assemblee: a.nom })),
+        ...assemblees.map(a => countMembres({ assemblee: a.nom, comite: true })),
+      ]);
+      if (annule) return;
+      const nC = CATEGORIES_MEMBRE.length, nA = assemblees.length;
+      setStats({
+        total,
+        categories: Object.fromEntries(CATEGORIES_MEMBRE.map((c, i) => [c.key, reste[i]])),
+        parAssemblee: Object.fromEntries(assemblees.map((a, i) => [a.nom, { total: reste[nC + i], comite: reste[nC + nA + i] }])),
+      });
+    })();
+    return () => { annule = true; };
+  }, [cle]);
+
+  const v = (x) => (stats && x !== null && x !== undefined ? x : "…");
   return (
     <div>
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-        <StatCard label="Membres (pays)" value={total} tone="var(--primary)" />
+        <StatCard label="Membres (pays)" value={v(stats?.total)} tone="var(--primary)" />
       </div>
-      <CategoriesCards membres={members} />
+      <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+        {CATEGORIES_MEMBRE.map(c => <StatCard key={c.key} label={c.pluriel} value={v(stats?.categories[c.key])} tone={c.color} />)}
+      </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {lignes.map(l => (
-          <div key={l.nom} onClick={() => onChoose(l.nom)} style={{
-            background: "#fff", border: "1px solid var(--border)", borderRadius: 10, padding: "9px 12px",
-            display: "flex", alignItems: "center", gap: 10, cursor: "pointer"
-          }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>{l.nom}</div>
-              <div style={{ fontSize: 11, color: "var(--ink-soft)" }}>{l.region}</div>
-            </div>
-            <div style={{ textAlign: "right", fontSize: 11.5 }}>
-              <div style={{ fontWeight: 700 }}>{l.total} membre{l.total > 1 ? "s" : ""}</div>
-              <div style={{ color: l.comite ? "var(--accent-dark)" : "var(--danger)" }}>
-                {l.comite ? `Comité : ${l.comite}` : "Comité non composé"}
+        {assemblees.map(a => {
+          const l = stats?.parAssemblee[a.nom] || {};
+          return (
+            <div key={a.nom} onClick={() => onChoose(a.nom)} style={{
+              background: "#fff", border: "1px solid var(--border)", borderRadius: 10, padding: "9px 12px",
+              display: "flex", alignItems: "center", gap: 10, cursor: "pointer"
+            }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{a.nom}</div>
+                <div style={{ fontSize: 11, color: "var(--ink-soft)" }}>{a.region}</div>
               </div>
+              <div style={{ textAlign: "right", fontSize: 11.5 }}>
+                <div style={{ fontWeight: 700 }}>{v(l.total)} membre{l.total > 1 ? "s" : ""}</div>
+                {stats && l.comite !== null && l.comite !== undefined && (
+                  <div style={{ color: l.comite ? "var(--accent-dark)" : "var(--danger)" }}>
+                    {l.comite ? `Comité : ${l.comite}` : "Comité non composé"}
+                  </div>
+                )}
+              </div>
+              <ChevronRight size={15} color="var(--ink-soft)" />
             </div>
-            <ChevronRight size={15} color="var(--ink-soft)" />
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -7315,7 +7391,7 @@ function CoordLockPanel({ leadership, unlocked, onUnlock, onLock, pinField = "pi
   );
 }
 
-function Coordination({ coordSeminars, setCoordSeminars, seminars, setSeminars, deptHeads, setDeptHeads, actionPlans, setActionPlans, plansAnnuels, setPlansAnnuels, deptPlans, saveDeptPlan, deleteDeptPlan, deptBilans, saveDeptBilan, deleteDeptBilan, deptCodes, saveDeptCode, leadership, pastors, regions, members, unlocked, onUnlock, onLock, natUnlocked, onUnlockNat, onLockNat, showToast }) {
+function Coordination({ coordSeminars, setCoordSeminars, seminars, setSeminars, deptHeads, setDeptHeads, actionPlans, setActionPlans, plansAnnuels, setPlansAnnuels, deptPlans, saveDeptPlan, deleteDeptPlan, deptBilans, saveDeptBilan, deleteDeptBilan, deptCodes, saveDeptCode, leadership, pastors, regions, unlocked, onUnlock, onLock, natUnlocked, onUnlockNat, onLockNat, showToast }) {
   const [subTab, setSubTab] = useState("plansdept");
 
   return (
@@ -7336,7 +7412,7 @@ function Coordination({ coordSeminars, setCoordSeminars, seminars, setSeminars, 
         <button onClick={() => setSubTab("membres")} style={segButtonStyle(subTab === "membres")}>Membres</button>
       </div>
 
-      {subTab === "membres" && <MembresNational regions={regions} members={members} />}
+      {subTab === "membres" && <MembresNational regions={regions} />}
 
       {subTab === "plansdept" && (
         <PlansDepartements
@@ -7376,7 +7452,8 @@ function dateCourte(d) {
   return d ? new Date(d + "T00:00:00").toLocaleDateString("fr-FR") : "";
 }
 
-function MembresNational({ regions, members }) {
+function MembresNational({ regions }) {
+  const { membres: members, loading, erreur, recharger } = useMembres(null);
   const [vue, setVue] = useState("synthese"); // "synthese" | "liste" | "comites" | "stats"
   const [region, setRegion] = useState("");
   const [assemblee, setAssemblee] = useState("");
@@ -7446,8 +7523,15 @@ function MembresNational({ regions, members }) {
   const th = { textAlign: "left", padding: "7px 6px", fontSize: 10.5, color: "var(--ink-soft)", fontWeight: 700, borderBottom: "1px solid var(--border)", whiteSpace: "nowrap" };
   const td = { padding: "7px 6px", fontSize: 12, borderBottom: "1px solid var(--border)" };
 
+  if (loading || erreur) return <ChargementMembres loading={loading} erreur={erreur} recharger={recharger} />;
+
   return (
     <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+        <button onClick={recharger} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, fontWeight: 700, color: "var(--primary)" }}>
+          <RefreshCw size={12} /> Actualiser
+        </button>
+      </div>
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
         <StatCard label="Membres" value={total} tone="var(--primary)" />
         <StatCard label="Assemblées renseignées" value={`${assembleesAvecMembres}/${assembleesConnues.length}`} tone="var(--accent-dark)" />
