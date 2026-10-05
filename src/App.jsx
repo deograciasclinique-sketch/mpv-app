@@ -853,6 +853,7 @@ export default function App() {
   const [deptBilans, setDeptBilans] = useState([]);
   const [deptCodes, setDeptCodes] = useState({});
   const [annonces, setAnnonces] = useState([]);
+  const [assemblyMembers, setAssemblyMembers] = useState([]);
   const [coordUnlocked, setCoordUnlocked] = useState(false);
   const [coordNatUnlocked, setCoordNatUnlocked] = useState(false);
   const [toast, setToast] = useState(null);
@@ -883,7 +884,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [r, p, s, l, wp, sr, cs, dh, ap, br, mi, pa, ph, fr, ar, er, dpl, dbi, dco, ann] = await Promise.all([
+      const [r, p, s, l, wp, sr, cs, dh, ap, br, mi, pa, ph, fr, ar, er, dpl, dbi, dco, ann, mem] = await Promise.all([
         loadKey("regions-assemblies", REGIONS_DEFAULT),
         loadKey("pastors-directory", PASTORS_DEFAULT),
         loadKey("seminars-list", []),
@@ -904,6 +905,7 @@ export default function App() {
         loadKey("dept-bilans", []),
         loadKey("dept-codes", {}),
         loadKey("annonces", []),
+        loadKey("assembly-members", []),
       ]);
       const pWithPhotos = p.map(x => ({ ...x, photo: (ph && ph[x.id]) || x.photo || null }));
       setRegions(r); setPastors(pWithPhotos); setPastorsPhotos(ph || {}); setSeminars(s); setLeadership(l);
@@ -912,6 +914,7 @@ export default function App() {
       setBibleReports(br); setMissionaries(mi); setPlansAnnuels(pa);
       setFinanceReports(fr); setActivityReports(ar); setExpenseReports(er);
       setDeptPlans(dpl); setDeptBilans(dbi); setDeptCodes(dco || {}); setAnnonces(ann || []);
+      setAssemblyMembers(Array.isArray(mem) ? mem : []);
       setLoading(false);
     })();
   }, []);
@@ -978,6 +981,9 @@ export default function App() {
   const deleteDeptBilan = (entry) => upsertShared("dept-bilans", setDeptBilans, entry, true);
   const saveAnnonce = (entry) => upsertShared("annonces", setAnnonces, entry, false);
   const deleteAnnonce = (entry) => upsertShared("annonces", setAnnonces, entry, true);
+  // Membres des assemblées : plusieurs assemblées peuvent saisir en même temps.
+  const saveMember = (entry) => upsertShared("assembly-members", setAssemblyMembers, entry, false);
+  const deleteMember = (entry) => upsertShared("assembly-members", setAssemblyMembers, entry, true);
   async function saveDeptCode(dept, code) {
     const next = await updateKey("dept-codes", {}, (cur) => ({ ...(cur || {}), [dept]: code }));
     if (next) { setDeptCodes(next); return true; }
@@ -1054,6 +1060,7 @@ export default function App() {
             pastors={pastors} setPastors={persistPastors}
             regions={regions} setRegions={persistRegions}
             missionaries={missionaries} setMissionaries={persistMissionaries}
+            members={assemblyMembers} saveMember={saveMember} deleteMember={deleteMember}
             showToast={showToast}
           />
         )}
@@ -1217,6 +1224,7 @@ const GUIDE = [
     points: [
       "Les pasteurs, prédicateurs et aspirants avec leur téléphone.",
       "Les régions et leurs assemblées, avec le pasteur titulaire et son contact.",
+      "« Membres & comité » : choisissez l'assemblée, puis « Ajouter » pour enregistrer un membre (nom, prénom, sexe, âge, profession, situation matrimoniale). Dans sa fiche, choisissez sa responsabilité pour le placer dans le comité directeur.",
       "Les missionnaires.",
     ],
   },
@@ -3004,12 +3012,12 @@ function SeminarForm({ seminar, pastors, regions, onSave, onDelete, onClose }) {
 /*  RÉPERTOIRE (Pasteurs & prédicateurs / Régions & assemblées)        */
 /* ------------------------------------------------------------------ */
 
-function Repertoire({ pastors, setPastors, regions, setRegions, missionaries, setMissionaries, showToast }) {
+function Repertoire({ pastors, setPastors, regions, setRegions, missionaries, setMissionaries, members, saveMember, deleteMember, showToast }) {
   const [subTab, setSubTab] = useState("pasteurs");
 
   return (
     <div>
-      <SectionTitle sub="Pasteurs, prédicateurs, régions, assemblées et missionnaires">Répertoire</SectionTitle>
+      <SectionTitle sub="Pasteurs, prédicateurs, régions, assemblées, membres et missionnaires">Répertoire</SectionTitle>
 
       <div style={{ display: "flex", gap: 6, marginBottom: 16, background: "#fff", padding: 4, borderRadius: 11, border: "1px solid var(--border)", flexWrap: "wrap" }}>
         <button onClick={() => setSubTab("pasteurs")} style={{
@@ -3022,6 +3030,11 @@ function Repertoire({ pastors, setPastors, regions, setRegions, missionaries, se
           background: subTab === "regions" ? "var(--primary)" : "transparent",
           color: subTab === "regions" ? "#fff" : "var(--ink-soft)"
         }}>Régions &amp; assemblées</button>
+        <button onClick={() => setSubTab("membres")} style={{
+          flex: 1, padding: "8px 0", borderRadius: 8, fontSize: 12, fontWeight: 700,
+          background: subTab === "membres" ? "var(--primary)" : "transparent",
+          color: subTab === "membres" ? "#fff" : "var(--ink-soft)"
+        }}>Membres &amp; comité</button>
         <button onClick={() => setSubTab("missionnaires")} style={{
           flex: 1, padding: "8px 0", borderRadius: 8, fontSize: 12, fontWeight: 700,
           background: subTab === "missionnaires" ? "var(--primary)" : "transparent",
@@ -3034,6 +3047,9 @@ function Repertoire({ pastors, setPastors, regions, setRegions, missionaries, se
       )}
       {subTab === "regions" && (
         <RegionsView regions={regions} setRegions={setRegions} showToast={showToast} />
+      )}
+      {subTab === "membres" && (
+        <MembresAssemblees regions={regions} members={members} saveMember={saveMember} deleteMember={deleteMember} showToast={showToast} />
       )}
       {subTab === "missionnaires" && (
         <MissionnairesAfrique missionaries={missionaries} setMissionaries={setMissionaries} showToast={showToast} />
@@ -3489,6 +3505,445 @@ function RegionsView({ regions, setRegions, showToast }) {
         />
       )}
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  MEMBRES DES ASSEMBLÉES & COMITÉ DIRECTEUR                          */
+/* ------------------------------------------------------------------ */
+
+const SEXES = ["Masculin", "Féminin"];
+const SITUATIONS_MATRIMONIALES = ["Célibataire", "Marié(e)", "Fiancé(e)", "Veuf / Veuve", "Divorcé(e)"];
+const POSTES_COMITE = [
+  "Pasteur titulaire",
+  "Président du comité",
+  "Vice-président",
+  "Secrétaire",
+  "Secrétaire adjoint",
+  "Trésorier / Financier",
+  "Trésorier adjoint",
+  "Responsable Mission et Formation",
+  "Responsable Évangélisation",
+  "Responsable des Jeunes",
+  "Responsable des Femmes",
+  "Responsable des Hommes",
+  "Responsable des Enfants",
+  "Responsable Chorale / Louange",
+  "Responsable Intercession / Prière",
+  "Responsable Accueil / Protocole",
+  "Responsable Communication",
+  "Responsable Patrimoine",
+  "Responsable Socioculturel et Famille",
+  "Conseiller",
+];
+const POSTE_AUTRE = "Autre responsabilité";
+
+const TRANCHES_AGE = [
+  { label: "Moins de 12 ans", min: 0, max: 11 },
+  { label: "12 – 17 ans", min: 12, max: 17 },
+  { label: "18 – 35 ans", min: 18, max: 35 },
+  { label: "36 – 59 ans", min: 36, max: 59 },
+  { label: "60 ans et plus", min: 60, max: 200 },
+];
+
+function posteRang(m) {
+  const i = POSTES_COMITE.indexOf(m.responsabilite);
+  return i === -1 ? POSTES_COMITE.length : i;
+}
+function posteLibelle(m) {
+  if (!m.responsabilite) return "";
+  return m.responsabilite === POSTE_AUTRE ? (m.responsabiliteAutre || POSTE_AUTRE) : m.responsabilite;
+}
+function nomComplet(m) {
+  return [m.nom, m.prenom].filter(Boolean).join(" ");
+}
+
+function comiteToText(assemblee, comite) {
+  const lignes = [`🏛 COMITÉ DIRECTEUR — ${assemblee}`, "Mission Parole de Vie Burkina", ""];
+  comite.forEach(m => {
+    lignes.push(`• ${posteLibelle(m)} : ${nomComplet(m)}${m.telephone ? ` (${m.telephone})` : ""}`);
+  });
+  return lignes.join("\n");
+}
+
+function MembresAssemblees({ regions, members, saveMember, deleteMember, showToast }) {
+  const [assemblee, setAssemblee] = useState("");
+  const [vue, setVue] = useState("membres"); // "membres" | "comite" | "stats"
+  const [editing, setEditing] = useState(null);
+  const [search, setSearch] = useState("");
+  const [filterSexe, setFilterSexe] = useState("");
+
+  const duLieu = members.filter(m => m.assemblee === assemblee);
+  const comite = duLieu.filter(m => m.responsabilite).sort((a, b) => posteRang(a) - posteRang(b) || nomComplet(a).localeCompare(nomComplet(b)));
+  const liste = duLieu
+    .filter(m => !filterSexe || m.sexe === filterSexe)
+    .filter(m => nomComplet(m).toLowerCase().includes(search.toLowerCase()) || (m.profession || "").toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => nomComplet(a).localeCompare(nomComplet(b)));
+
+  async function handleSave(m) {
+    const isNew = !members.some(x => x.id === m.id);
+    const ok = await saveMember(m);
+    if (ok) {
+      setEditing(null);
+      showToast(isNew ? "Membre ajouté" : "Fiche mise à jour");
+    }
+  }
+  async function handleDelete(m) {
+    const ok = await deleteMember(m);
+    if (ok) {
+      setEditing(null);
+      showToast("Membre retiré");
+    }
+  }
+
+  function partagerComite() {
+    window.open(shareWhatsappLink(comiteToText(assemblee, comite)), "_blank");
+  }
+
+  return (
+    <div>
+      <div style={{ fontSize: 11.5, color: "var(--ink-soft)", background: "#fff", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 12px", marginBottom: 14, lineHeight: 1.5 }}>
+        Choisissez une assemblée pour enregistrer ses membres (nom, prénom, sexe, âge, profession, situation matrimoniale). Pour placer un membre dans le comité directeur, ouvrez sa fiche et indiquez sa responsabilité.
+      </div>
+
+      <Field label="Assemblée">
+        <AssembleeSelect regions={regions} value={assemblee} onChange={setAssemblee} />
+      </Field>
+
+      {!assemblee ? (
+        <MembresResumeNational regions={regions} members={members} onChoose={setAssemblee} />
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: 6, marginBottom: 14, background: "#fff", padding: 4, borderRadius: 11, border: "1px solid var(--border)" }}>
+            <button onClick={() => setVue("membres")} style={segButtonStyle(vue === "membres")}>Membres ({duLieu.length})</button>
+            <button onClick={() => setVue("comite")} style={segButtonStyle(vue === "comite")}>Comité directeur ({comite.length})</button>
+            <button onClick={() => setVue("stats")} style={segButtonStyle(vue === "stats")}>Statistiques</button>
+          </div>
+
+          {vue === "membres" && (
+            <div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                <div style={{ position: "relative", flex: 1 }}>
+                  <Search size={14} style={{ position: "absolute", left: 10, top: 12.5, color: "var(--ink-soft)" }} />
+                  <input style={{ ...inputStyle, paddingLeft: 30 }} placeholder="Nom, prénom ou profession…" value={search} onChange={e => setSearch(e.target.value)} />
+                </div>
+                <button onClick={() => setEditing({ assemblee })} style={{
+                  background: "var(--primary)", color: "#fff", borderRadius: 9, padding: "0 14px",
+                  display: "flex", alignItems: "center", gap: 5, fontSize: 13, fontWeight: 600
+                }}>
+                  <UserPlus size={16} /> Ajouter
+                </button>
+              </div>
+              <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+                {["", ...SEXES].map(s => (
+                  <button key={s || "tous"} onClick={() => setFilterSexe(s)} style={{
+                    padding: "6px 12px", borderRadius: 999, fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap",
+                    background: filterSexe === s ? "var(--primary)" : "#fff", color: filterSexe === s ? "#fff" : "var(--ink-soft)",
+                    border: "1px solid var(--border)"
+                  }}>
+                    {s ? `${s === "Masculin" ? "Hommes" : "Femmes"} (${duLieu.filter(m => m.sexe === s).length})` : `Tous (${duLieu.length})`}
+                  </button>
+                ))}
+              </div>
+
+              {liste.length === 0 ? (
+                <EmptyState icon={Users} text={duLieu.length === 0 ? `Aucun membre enregistré pour ${assemblee}.` : "Aucun membre ne correspond à la recherche."} />
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                  {liste.map(m => <MembreCard key={m.id} m={m} onClick={() => setEditing(m)} />)}
+                </div>
+              )}
+            </div>
+          )}
+
+          {vue === "comite" && (
+            <div>
+              {comite.length === 0 ? (
+                <div style={{ fontSize: 12.5, color: "var(--ink-soft)", background: "#fff", border: "1px dashed var(--border)", borderRadius: 10, padding: "14px 12px", lineHeight: 1.5 }}>
+                  Le comité directeur de {assemblee} n'est pas encore composé. Allez dans « Membres », ouvrez la fiche d'un membre (ou ajoutez-le), puis choisissez sa responsabilité dans le comité directeur.
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 12 }}>
+                    {comite.map(m => (
+                      <div key={m.id} onClick={() => setEditing(m)} style={{
+                        background: "#fff", border: "1px solid var(--border)", borderLeft: "4px solid var(--accent-dark)",
+                        borderRadius: 11, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer"
+                      }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent-dark)", textTransform: "uppercase", letterSpacing: 0.3 }}>{posteLibelle(m)}</div>
+                          <div style={{ fontSize: 14, fontWeight: 700 }}>{nomComplet(m)}</div>
+                          {m.profession && <div style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{m.profession}</div>}
+                        </div>
+                        {m.telephone && (
+                          <>
+                            <a href={`tel:${m.telephone}`} onClick={e => e.stopPropagation()} style={{ color: "var(--primary)", padding: 5, display: "flex" }}><Phone size={15} /></a>
+                            <a href={whatsappLink(m.telephone, "")} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ color: "#1f9d55", padding: 5, display: "flex" }}><MessageCircle size={15} /></a>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <PrimaryButton onClick={partagerComite} icon={Share2} full>Partager le comité sur WhatsApp</PrimaryButton>
+                </>
+              )}
+            </div>
+          )}
+
+          {vue === "stats" && <MembresStats membres={duLieu} titre={assemblee} />}
+        </>
+      )}
+
+      {editing && (
+        <MembreForm
+          membre={editing}
+          regions={regions}
+          comite={members.filter(x => x.assemblee === (editing.assemblee || assemblee) && x.responsabilite && x.id !== editing.id)}
+          onSave={handleSave}
+          onDelete={handleDelete}
+          onClose={() => setEditing(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function MembreCard({ m, onClick }) {
+  const details = [m.sexe, m.age ? `${m.age} ans` : "", m.situationMatrimoniale].filter(Boolean).join(" · ");
+  return (
+    <div onClick={onClick} style={{
+      background: "#fff", border: "1px solid var(--border)", borderRadius: 11, padding: "10px 12px",
+      display: "flex", alignItems: "center", gap: 10, cursor: "pointer"
+    }}>
+      <div style={{
+        width: 34, height: 34, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+        background: m.sexe === "Féminin" ? "#fce7f3" : "#e0ecff", color: m.sexe === "Féminin" ? "#be185d" : "var(--primary)",
+        fontSize: 13, fontWeight: 700
+      }}>
+        {((m.nom || "?")[0] + (m.prenom || "")[0]).toUpperCase()}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 700 }}>{nomComplet(m)}</div>
+        <div style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{details || "Informations à compléter"}</div>
+        {m.profession && <div style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{m.profession}</div>}
+        {m.responsabilite && (
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--accent-dark)", marginTop: 2, display: "flex", alignItems: "center", gap: 3 }}>
+            <ShieldCheck size={11} /> {posteLibelle(m)}
+          </div>
+        )}
+      </div>
+      <ChevronRight size={16} color="var(--ink-soft)" />
+    </div>
+  );
+}
+
+function StatBar({ label, value, total, color }) {
+  const pct = total ? Math.round((value / total) * 100) : 0;
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3 }}>
+        <span>{label}</span>
+        <span style={{ fontWeight: 700 }}>{value} <span style={{ color: "var(--ink-soft)", fontWeight: 500 }}>({pct} %)</span></span>
+      </div>
+      <div style={{ height: 7, background: "var(--bg)", borderRadius: 4, overflow: "hidden" }}>
+        <div style={{ width: `${pct}%`, height: "100%", background: color || "var(--primary)", borderRadius: 4 }} />
+      </div>
+    </div>
+  );
+}
+
+function MembresStats({ membres, titre }) {
+  const total = membres.length;
+  if (total === 0) return <EmptyState icon={BarChart3} text="Aucun membre enregistré pour l'instant." />;
+  const avecAge = membres.filter(m => m.age !== "" && m.age !== undefined && m.age !== null);
+  const box = { background: "#fff", border: "1px solid var(--border)", borderRadius: 12, padding: "12px 14px", marginBottom: 12 };
+  const h = { fontSize: 12.5, fontWeight: 700, color: "var(--primary)", marginBottom: 10 };
+  const professions = Object.entries(membres.reduce((acc, m) => {
+    const p = (m.profession || "").trim();
+    if (p) acc[p] = (acc[p] || 0) + 1;
+    return acc;
+  }, {})).sort((a, b) => b[1] - a[1]).slice(0, 6);
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <StatCard label="Membres" value={total} tone="var(--primary)" />
+        <StatCard label="Hommes" value={membres.filter(m => m.sexe === "Masculin").length} tone="var(--primary)" />
+        <StatCard label="Femmes" value={membres.filter(m => m.sexe === "Féminin").length} tone="#be185d" />
+      </div>
+
+      <div style={box}>
+        <div style={h}>Situation matrimoniale</div>
+        {SITUATIONS_MATRIMONIALES.map(s => (
+          <StatBar key={s} label={s} value={membres.filter(m => m.situationMatrimoniale === s).length} total={total} />
+        ))}
+      </div>
+
+      <div style={box}>
+        <div style={h}>Tranches d'âge {avecAge.length < total && <span style={{ fontWeight: 500, color: "var(--ink-soft)", fontSize: 11 }}>· {total - avecAge.length} sans âge</span>}</div>
+        {TRANCHES_AGE.map(t => (
+          <StatBar key={t.label} label={t.label} color="var(--accent-dark)"
+            value={avecAge.filter(m => Number(m.age) >= t.min && Number(m.age) <= t.max).length} total={total} />
+        ))}
+      </div>
+
+      {professions.length > 0 && (
+        <div style={box}>
+          <div style={h}>Professions les plus courantes</div>
+          {professions.map(([p, n]) => <StatBar key={p} label={p} value={n} total={total} color="#64748b" />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MembresResumeNational({ regions, members, onChoose }) {
+  const lignes = regions.flatMap(r => r.assemblees.map(a => {
+    const ms = members.filter(m => m.assemblee === a.nom);
+    return { nom: a.nom, region: r.nom, total: ms.length, comite: ms.filter(m => m.responsabilite).length };
+  }));
+  const total = members.length;
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <StatCard label="Membres (pays)" value={total} tone="var(--primary)" />
+        <StatCard label="Hommes" value={members.filter(m => m.sexe === "Masculin").length} tone="var(--primary)" />
+        <StatCard label="Femmes" value={members.filter(m => m.sexe === "Féminin").length} tone="#be185d" />
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {lignes.map(l => (
+          <div key={l.nom} onClick={() => onChoose(l.nom)} style={{
+            background: "#fff", border: "1px solid var(--border)", borderRadius: 10, padding: "9px 12px",
+            display: "flex", alignItems: "center", gap: 10, cursor: "pointer"
+          }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>{l.nom}</div>
+              <div style={{ fontSize: 11, color: "var(--ink-soft)" }}>{l.region}</div>
+            </div>
+            <div style={{ textAlign: "right", fontSize: 11.5 }}>
+              <div style={{ fontWeight: 700 }}>{l.total} membre{l.total > 1 ? "s" : ""}</div>
+              <div style={{ color: l.comite ? "var(--accent-dark)" : "var(--danger)" }}>
+                {l.comite ? `Comité : ${l.comite}` : "Comité non composé"}
+              </div>
+            </div>
+            <ChevronRight size={15} color="var(--ink-soft)" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MembreForm({ membre, regions, comite, onSave, onDelete, onClose }) {
+  const isNew = !membre.id;
+  const [assemblee, setAssemblee] = useState(membre.assemblee || "");
+  const [nom, setNom] = useState(membre.nom || "");
+  const [prenom, setPrenom] = useState(membre.prenom || "");
+  const [sexe, setSexe] = useState(membre.sexe || "");
+  const [age, setAge] = useState(membre.age ?? "");
+  const [profession, setProfession] = useState(membre.profession || "");
+  const [situationMatrimoniale, setSituationMatrimoniale] = useState(membre.situationMatrimoniale || "");
+  const [telephone, setTelephone] = useState(membre.telephone || "");
+  const [responsabilite, setResponsabilite] = useState(membre.responsabilite || "");
+  const [responsabiliteAutre, setResponsabiliteAutre] = useState(membre.responsabiliteAutre || "");
+  const [saving, setSaving] = useState(false);
+
+  // Postes uniques : un seul titulaire par poste dans une même assemblée
+  // (les conseillers et « autre responsabilité » peuvent être plusieurs).
+  const occupant = responsabilite && responsabilite !== "Conseiller" && responsabilite !== POSTE_AUTRE
+    ? comite.find(x => x.responsabilite === responsabilite)
+    : null;
+
+  async function handleSubmit() {
+    if (!assemblee) { alert("Merci de choisir l'assemblée."); return; }
+    if (!nom.trim() || !prenom.trim()) { alert("Merci de renseigner le nom et le prénom."); return; }
+    if (!sexe) { alert("Merci d'indiquer le sexe."); return; }
+    const ageNum = String(age).trim() === "" ? "" : Number(age);
+    if (ageNum !== "" && (isNaN(ageNum) || ageNum < 0 || ageNum > 120)) { alert("L'âge doit être un nombre entre 0 et 120."); return; }
+    if (responsabilite === POSTE_AUTRE && !responsabiliteAutre.trim()) { alert("Merci de préciser la responsabilité."); return; }
+    if (occupant && !confirm(`Le poste « ${responsabilite} » est déjà occupé par ${nomComplet(occupant)}. Voulez-vous quand même l'attribuer aussi à ce membre ?`)) return;
+    setSaving(true);
+    await onSave({
+      ...membre,
+      id: membre.id || uid(),
+      assemblee,
+      nom: nom.trim(),
+      prenom: prenom.trim(),
+      sexe,
+      age: ageNum,
+      profession: profession.trim(),
+      situationMatrimoniale,
+      telephone: telephone.trim(),
+      responsabilite,
+      responsabiliteAutre: responsabilite === POSTE_AUTRE ? responsabiliteAutre.trim() : "",
+      updatedAt: Date.now(),
+    });
+    setSaving(false);
+  }
+
+  return (
+    <ModalShell title={isNew ? "Nouveau membre" : "Fiche du membre"} onClose={onClose}>
+      <Field label="Assemblée"><AssembleeSelect regions={regions} value={assemblee} onChange={setAssemblee} /></Field>
+      <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ flex: 1 }}><Field label="Nom"><input style={inputStyle} value={nom} onChange={e => setNom(e.target.value)} placeholder="Ex : OUEDRAOGO" /></Field></div>
+        <div style={{ flex: 1 }}><Field label="Prénom(s)"><input style={inputStyle} value={prenom} onChange={e => setPrenom(e.target.value)} placeholder="Ex : Paul" /></Field></div>
+      </div>
+      <Field label="Sexe">
+        <div style={{ display: "flex", gap: 8 }}>
+          {SEXES.map(s => (
+            <button key={s} onClick={() => setSexe(s)} style={{
+              flex: 1, padding: "10px 0", borderRadius: 9, fontSize: 13.5, fontWeight: 600,
+              border: `1.5px solid ${sexe === s ? "var(--primary)" : "var(--border)"}`,
+              background: sexe === s ? "var(--primary)" : "#fff", color: sexe === s ? "#fff" : "var(--ink)"
+            }}>{s}</button>
+          ))}
+        </div>
+      </Field>
+      <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ width: 100 }}><Field label="Âge"><input style={inputStyle} type="number" inputMode="numeric" min="0" max="120" value={age} onChange={e => setAge(e.target.value)} placeholder="Ex : 34" /></Field></div>
+        <div style={{ flex: 1 }}>
+          <Field label="Situation matrimoniale">
+            <select style={inputStyle} value={situationMatrimoniale} onChange={e => setSituationMatrimoniale(e.target.value)}>
+              <option value="">— Choisir —</option>
+              {SITUATIONS_MATRIMONIALES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </Field>
+        </div>
+      </div>
+      <Field label="Profession"><input style={inputStyle} value={profession} onChange={e => setProfession(e.target.value)} placeholder="Ex : Enseignant, commerçante, élève…" /></Field>
+      <Field label="Téléphone (facultatif)"><input style={inputStyle} type="tel" value={telephone} onChange={e => setTelephone(e.target.value)} placeholder="Ex : 70 00 00 00" /></Field>
+
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 11, padding: "12px 12px 2px", marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: "var(--primary)", marginBottom: 8 }}>
+          <ShieldCheck size={14} /> Comité directeur
+        </div>
+        <Field label="Responsabilité dans le comité directeur">
+          <select style={inputStyle} value={responsabilite} onChange={e => setResponsabilite(e.target.value)}>
+            <option value="">Simple membre (pas dans le comité)</option>
+            {POSTES_COMITE.map(p => <option key={p} value={p}>{p}</option>)}
+            <option value={POSTE_AUTRE}>{POSTE_AUTRE}…</option>
+          </select>
+        </Field>
+        {responsabilite === POSTE_AUTRE && (
+          <Field label="Préciser la responsabilité"><input style={inputStyle} value={responsabiliteAutre} onChange={e => setResponsabiliteAutre(e.target.value)} placeholder="Ex : Responsable des visites" /></Field>
+        )}
+        {occupant && (
+          <div style={{ fontSize: 11.5, color: "var(--danger)", marginBottom: 10, display: "flex", gap: 5, alignItems: "flex-start" }}>
+            <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1 }} /> Ce poste est déjà occupé par {nomComplet(occupant)}.
+          </div>
+        )}
+      </div>
+
+      <PrimaryButton onClick={saving ? undefined : handleSubmit} icon={Check} full>{saving ? "Enregistrement…" : "Enregistrer"}</PrimaryButton>
+      {!isNew && (
+        <button onClick={() => { if (confirm(`Retirer ${nomComplet(membre)} de la liste des membres ?`)) onDelete(membre); }} style={{
+          width: "100%", marginTop: 10, color: "var(--danger)", fontSize: 13, fontWeight: 600,
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: 8
+        }}>
+          <Trash2 size={14} /> Retirer ce membre
+        </button>
+      )}
+    </ModalShell>
   );
 }
 
