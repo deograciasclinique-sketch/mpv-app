@@ -1224,7 +1224,7 @@ const GUIDE = [
     points: [
       "Les pasteurs, prédicateurs et aspirants avec leur téléphone.",
       "Les régions et leurs assemblées, avec le pasteur titulaire et son contact.",
-      "« Membres & comité » : choisissez l'assemblée, puis « Ajouter » pour enregistrer un membre (nom, prénom, sexe, âge, profession, situation matrimoniale). Dans sa fiche, choisissez sa responsabilité pour le placer dans le comité directeur.",
+      "« Membres & comité » : choisissez l'assemblée, puis « Ajouter » pour enregistrer un membre (nom, prénom, sexe, âge, profession, situation matrimoniale, date du salut). Dans sa fiche, choisissez sa responsabilité pour le placer dans le comité directeur.",
       "Les missionnaires.",
     ],
   },
@@ -3603,7 +3603,7 @@ function MembresAssemblees({ regions, members, saveMember, deleteMember, showToa
   return (
     <div>
       <div style={{ fontSize: 11.5, color: "var(--ink-soft)", background: "#fff", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 12px", marginBottom: 14, lineHeight: 1.5 }}>
-        Choisissez une assemblée pour enregistrer ses membres (nom, prénom, sexe, âge, profession, situation matrimoniale). Pour placer un membre dans le comité directeur, ouvrez sa fiche et indiquez sa responsabilité.
+        Choisissez une assemblée pour enregistrer ses membres (nom, prénom, sexe, âge, profession, situation matrimoniale, date du salut). Pour placer un membre dans le comité directeur, ouvrez sa fiche et indiquez sa responsabilité.
       </div>
 
       <Field label="Assemblée">
@@ -3726,6 +3726,7 @@ function MembreCard({ m, onClick }) {
         <div style={{ fontSize: 13.5, fontWeight: 700 }}>{nomComplet(m)}</div>
         <div style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{details || "Informations à compléter"}</div>
         {m.profession && <div style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{m.profession}</div>}
+        {m.dateSalut && <div style={{ fontSize: 11, color: "var(--ink-soft)" }}>Salut : {new Date(m.dateSalut + "T00:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}</div>}
         {m.responsabilite && (
           <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--accent-dark)", marginTop: 2, display: "flex", alignItems: "center", gap: 3 }}>
             <ShieldCheck size={11} /> {posteLibelle(m)}
@@ -3844,6 +3845,7 @@ function MembreForm({ membre, regions, comite, onSave, onDelete, onClose }) {
   const [profession, setProfession] = useState(membre.profession || "");
   const [situationMatrimoniale, setSituationMatrimoniale] = useState(membre.situationMatrimoniale || "");
   const [telephone, setTelephone] = useState(membre.telephone || "");
+  const [dateSalut, setDateSalut] = useState(membre.dateSalut || "");
   const [responsabilite, setResponsabilite] = useState(membre.responsabilite || "");
   const [responsabiliteAutre, setResponsabiliteAutre] = useState(membre.responsabiliteAutre || "");
   const [saving, setSaving] = useState(false);
@@ -3874,6 +3876,7 @@ function MembreForm({ membre, regions, comite, onSave, onDelete, onClose }) {
       profession: profession.trim(),
       situationMatrimoniale,
       telephone: telephone.trim(),
+      dateSalut,
       responsabilite,
       responsabiliteAutre: responsabilite === POSTE_AUTRE ? responsabiliteAutre.trim() : "",
       updatedAt: Date.now(),
@@ -3911,6 +3914,9 @@ function MembreForm({ membre, regions, comite, onSave, onDelete, onClose }) {
         </div>
       </div>
       <Field label="Profession"><input style={inputStyle} value={profession} onChange={e => setProfession(e.target.value)} placeholder="Ex : Enseignant, commerçante, élève…" /></Field>
+      <Field label="Date de réalisation du salut">
+        <input style={inputStyle} type="date" value={dateSalut} max={new Date().toISOString().slice(0, 10)} onChange={e => setDateSalut(e.target.value)} />
+      </Field>
       <Field label="Téléphone (facultatif)"><input style={inputStyle} type="tel" value={telephone} onChange={e => setTelephone(e.target.value)} placeholder="Ex : 70 00 00 00" /></Field>
 
       <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 11, padding: "12px 12px 2px", marginBottom: 14 }}>
