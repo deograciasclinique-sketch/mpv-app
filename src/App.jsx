@@ -9,13 +9,20 @@ import {
   Network, UserCog, ArrowDown, GraduationCap, CalendarClock, Church
 } from "lucide-react";
 import QRCode from "qrcode";
-import { loadKey, saveKey, updateKey, loadMembres, saveMembre, deleteMembre, countMembres, migrerAnciensMembres } from "./firebase.js";
+import { loadKey, loadKeyPays, saveKey, updateKey, loadMembres, saveMembre, deleteMembre, countMembres, migrerAnciensMembres } from "./firebase.js";
+import { APP_NOM, APP_NOM_COURT, PAYS, drapeau, paysCourant, paysChoisi, choisirPays, paysParCode, devise } from "./pays.js";
 import { newVisioLink, canEmbedVisio, VISIO_SERVER } from "./visio.js";
 import { RejoindreVisio, BadgeReunion, RappelsVisio } from "./VisioRoom.jsx";
 import {
   NIVEAUX, ROLES, roleById, DEPARTEMENTS_ALWM, DEPARTEMENTS_NOMS, normDept, POSTES_CD, POSTES_AUTRES, normPoste,
   FONCTIONS_ORGANISATION, RENCONTRES, FORMATIONS, CIRCUIT_RAPPORTS,
 } from "./organisation.js";
+
+// Pays de cette session (choisi au premier lancement, voir src/pays.js).
+const PAYS_COURANT = paysCourant();
+const DEV = devise();
+const DEV_COURT = DEV === "FCFA" ? "F" : DEV;
+const SIGNATURE = `${APP_NOM} — ${PAYS_COURANT.nom}`;
 
 /* ------------------------------------------------------------------ */
 /*  Données par défaut                                                */
@@ -44,6 +51,12 @@ const PASTORS_DEFAULT = [
   { id: "p2", nom: "Joseph Saré", telephone: "", assemblee: "", fonction: "Pasteur" },
   { id: "p3", nom: "Assignon Denis", telephone: "", assemblee: "", fonction: "Pasteur" },
 ];
+
+// Régions et pasteurs de départ : seulement pour le Burkina (données historiques).
+const REGIONS_INIT = PAYS_COURANT.code === "BF" ? REGIONS_DEFAULT : [];
+const PASTORS_INIT = PAYS_COURANT.code === "BF" ? PASTORS_DEFAULT : [];
+// Noms du Bureau Afrique : communs à tous les pays (document « leadership-afrique »).
+const CLES_LEADERSHIP_AFRIQUE = ["presidentAfrique", "vicePresidentAfrique", "secretaireBA", "responsableDeptAfrique"];
 
 const LEADERSHIP_DEFAULT = {
   presidentAfrique: "",
@@ -114,7 +127,7 @@ const REPORT_FIELDS = [
   { key: "declaresSauves", label: "Déclarés sauvés" },
   { key: "temoignages", label: "Témoignages" },
   { key: "ajoutsPhysiques", label: "Ajouts physiques" },
-  { key: "depensesTotal", label: "Dépenses total (FCFA)" },
+  { key: "depensesTotal", label: `Dépenses total (${DEV})` },
 ];
 
 // Reformulations simplifiées (pas une traduction officielle) de versets connus,
@@ -691,10 +704,16 @@ function formatDateLong(dateStr) {
 }
 
 function whatsappLink(phone, message) {
-  let digits = (phone || "").replace(/[^\d+]/g, "");
-  digits = digits.replace(/^\+/, "");
-  if (digits.startsWith("0")) digits = "226" + digits.slice(1);
-  if (!digits.startsWith("226") && digits.length <= 8) digits = "226" + digits;
+  const ind = PAYS_COURANT.indicatif;
+  const brut = (phone || "").trim();
+  let digits = brut.replace(/[^\d+]/g, "");
+  const international = digits.startsWith("+") || digits.startsWith("00");
+  digits = digits.replace(/^\+/, "").replace(/^00/, "");
+  if (!international) {
+    // Numéro local : on ajoute l'indicatif du pays choisi.
+    if (digits.startsWith("0")) digits = ind + digits.replace(/^0+/, "");
+    else if (!(digits.startsWith(ind) && digits.length > 9)) digits = ind + digits;
+  }
   return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
 }
 
@@ -711,10 +730,10 @@ function reportToText(r, { pays } = {}) {
   lignes.push("");
   REPORT_FIELDS.forEach(f => {
     const val = r[f.key] || 0;
-    lignes.push(`${f.label} : ${f.key === "depensesTotal" ? val.toLocaleString("fr-FR") + " FCFA" : val}`);
+    lignes.push(`${f.label} : ${f.key === "depensesTotal" ? val.toLocaleString("fr-FR") + " " + DEV : val}`);
   });
   lignes.push("");
-  lignes.push("Mission Parole de Vie Burkina");
+  lignes.push(SIGNATURE);
   return lignes.join("\n");
 }
 
@@ -726,9 +745,9 @@ function recapToText(totals, { titre, periodeLabel, nbRapports }) {
   const lignes = [`📊 ${titre}`, periodeLabel, `${nbRapports} rapport(s) pris en compte`, ""];
   REPORT_FIELDS.forEach(f => {
     const val = totals[f.key] || 0;
-    lignes.push(`${f.label} : ${f.key === "depensesTotal" ? val.toLocaleString("fr-FR") + " FCFA" : val}`);
+    lignes.push(`${f.label} : ${f.key === "depensesTotal" ? val.toLocaleString("fr-FR") + " " + DEV : val}`);
   });
-  lignes.push("", "Mission Parole de Vie Burkina");
+  lignes.push("", SIGNATURE);
   return lignes.join("\n");
 }
 
@@ -802,7 +821,7 @@ function LogoBadge({ size = 44 }) {
       display: "flex", alignItems: "center", justifyContent: "center",
       flexShrink: 0, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "hidden"
     }}>
-      <img src={LOGO_URI} alt="Logo Mission Parole de Vie" style={{ width: "76%", height: "76%", objectFit: "contain" }} />
+      <img src={LOGO_URI} alt={`Logo ${APP_NOM}`} style={{ width: "76%", height: "76%", objectFit: "contain" }} />
     </div>
   );
 }
@@ -866,11 +885,17 @@ function normDeptCodes(codes) {
   return out;
 }
 
+// Au premier lancement, chacun choisit son pays ; ensuite l'app s'ouvre directement.
 export default function App() {
+  if (!paysChoisi()) return <EcranChoixPays />;
+  return <AppPays />;
+}
+
+function AppPays() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("accueil");
-  const [regions, setRegions] = useState(REGIONS_DEFAULT);
-  const [pastors, setPastors] = useState(PASTORS_DEFAULT);
+  const [regions, setRegions] = useState(REGIONS_INIT);
+  const [pastors, setPastors] = useState(PASTORS_INIT);
   const [pastorsPhotos, setPastorsPhotos] = useState({});
   const [seminars, setSeminars] = useState([]);
   const [leadership, setLeadership] = useState(LEADERSHIP_DEFAULT);
@@ -931,9 +956,9 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [r, p, s, l, wp, sr, cs, dh, ap, br, mi, pa, ph, fr, ar, er, dpl, dbi, dco, ann, dis] = await Promise.all([
-        loadKey("regions-assemblies", REGIONS_DEFAULT),
-        loadKey("pastors-directory", PASTORS_DEFAULT),
+      const [r, p, s, l0, wp, sr, cs, dh, ap, br, mi, pa, ph, fr, ar, er, dpl, dbi, dco, ann, dis, la] = await Promise.all([
+        loadKey("regions-assemblies", REGIONS_INIT),
+        loadKey("pastors-directory", PASTORS_INIT),
         loadKey("seminars-list", []),
         loadKey("leadership-info", LEADERSHIP_DEFAULT),
         loadKey("weekly-programs", []),
@@ -953,7 +978,16 @@ export default function App() {
         loadKey("dept-codes", {}),
         loadKey("annonces", []),
         loadKey("districts", []),
+        loadKey("leadership-afrique", {}),
       ]);
+      // Bureau Afrique commun à tous les pays ; à défaut, ce qui était saisi dans le pays.
+      const l = { ...LEADERSHIP_DEFAULT, ...l0 };
+      CLES_LEADERSHIP_AFRIQUE.forEach(k => { l[k] = (la && la[k]) || l[k] || ""; });
+      if (!CLES_LEADERSHIP_AFRIQUE.some(k => la && la[k]) && CLES_LEADERSHIP_AFRIQUE.some(k => l[k])) {
+        const afrique = {};
+        CLES_LEADERSHIP_AFRIQUE.forEach(k => { afrique[k] = l[k] || ""; });
+        updateKey("leadership-afrique", {}, (cur) => ({ ...afrique, ...(cur || {}) }));
+      }
       const pWithPhotos = p.map(x => ({ ...x, departementCoord: x.departementCoord ? normDept(x.departementCoord) : "", photo: (ph && ph[x.id]) || x.photo || null }));
       setRegions(r); setPastors(pWithPhotos); setPastorsPhotos(ph || {}); setSeminars(s); setLeadership(l);
       setWeeklyPrograms(wp); setSeminarReports(sr);
@@ -962,6 +996,11 @@ export default function App() {
       setFinanceReports(fr); setActivityReports(ar); setExpenseReports(er);
       setDeptPlans(normDeptListe(dpl)); setDeptBilans(normDeptListe(dbi)); setDeptCodes(normDeptCodes(dco)); setAnnonces(ann || []); setDistricts(Array.isArray(dis) ? dis : []);
       setLoading(false);
+      // Ce pays utilise l'app : il apparaît dans la vue Afrique.
+      updateKey("pays-actifs", [], (cur) => {
+        const liste = Array.isArray(cur) ? cur : [];
+        return liste.includes(PAYS_COURANT.code) ? liste : [...liste, PAYS_COURANT.code];
+      });
     })();
   }, []);
 
@@ -992,7 +1031,12 @@ export default function App() {
     if (!ok) showToast("⚠ Échec de l'enregistrement — réessayez (vérifiez la connexion)");
   }
   const persistSeminars = (next) => persistGeneric("seminars-list", next, setSeminars);
-  const persistLeadership = (next) => persistGeneric("leadership-info", next, setLeadership);
+  async function persistLeadership(next) {
+    await persistGeneric("leadership-info", next, setLeadership);
+    const afrique = {};
+    CLES_LEADERSHIP_AFRIQUE.forEach(k => { afrique[k] = next[k] || ""; });
+    await updateKey("leadership-afrique", {}, (cur) => ({ ...(cur || {}), ...afrique }));
+  }
   const persistRegions = (next) => persistGeneric("regions-assemblies", next, setRegions);
   const persistWeeklyPrograms = (next) => persistGeneric("weekly-programs", next, setWeeklyPrograms);
   const persistSeminarReports = (next) => persistGeneric("seminar-reports", next, setSeminarReports);
@@ -1216,8 +1260,8 @@ function Shell({ children }) {
 const APP_URL = "https://mpv-app.vercel.app";
 
 const SHARE_MESSAGE = [
-  "🙏 *Application Mission Parole de Vie Burkina*",
-  "Département Mission et Formation",
+  `🙏 *Application ${APP_NOM}*`,
+  `${drapeau(PAYS_COURANT.code)} ${PAYS_COURANT.nom} — et tous les pays d'Afrique et de la diaspora`,
   "",
   "Séminaires, programmes, rapports, finances et plans d'action de toutes les assemblées, au même endroit.",
   "",
@@ -1360,7 +1404,7 @@ function ShareAppCard({ showToast }) {
     }
   }
   async function partager() {
-    try { await navigator.share({ title: "Mission Parole de Vie Burkina", text: SHARE_MESSAGE, url: APP_URL }); } catch (e) {}
+    try { await navigator.share({ title: APP_NOM, text: SHARE_MESSAGE, url: APP_URL }); } catch (e) {}
   }
 
   const btn = { display: "flex", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 10, padding: "10px 0", fontSize: 13, fontWeight: 700, textDecoration: "none" };
@@ -1413,6 +1457,15 @@ function MenuTab({ setTab, showToast }) {
   return (
     <div>
       <SectionTitle sub="Partager l'application et apprendre à l'utiliser">Menu</SectionTitle>
+
+      <div style={{ ...box, display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ fontSize: 28 }}>{drapeau(PAYS_COURANT.code)}</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent-dark)", textTransform: "uppercase", letterSpacing: ".05em" }}>Mon pays</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "var(--primary)" }}>{PAYS_COURANT.nom}</div>
+        </div>
+        <button onClick={() => setTab("eglise:pays")} style={{ fontSize: 12.5, fontWeight: 700, color: "var(--primary)", border: "1.5px solid var(--primary)", borderRadius: 9, padding: "7px 11px" }}>Changer</button>
+      </div>
 
       <ShareAppCard showToast={showToast} />
 
@@ -1489,7 +1542,7 @@ function MenuTab({ setTab, showToast }) {
       </div>
 
       <div style={{ textAlign: "center", fontSize: 11.5, color: "var(--ink-soft)", marginTop: 6 }}>
-        Mission Parole de Vie Burkina · Département Mission et Formation
+        {SIGNATURE}
       </div>
     </div>
   );
@@ -1509,10 +1562,10 @@ function Header({ onMenu, active }) {
       <LogoBadge size={46} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontFamily: "var(--font-display)", color: "#fff", fontSize: 17, fontWeight: 700, lineHeight: 1.15 }}>
-          Mission Parole de Vie
+          {APP_NOM}
         </div>
         <div style={{ color: "var(--accent)", fontSize: 10.5, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", marginTop: 2 }}>
-          Burkina Faso · Mission &amp; Formation
+          {drapeau(PAYS_COURANT.code)} {PAYS_COURANT.nom}
         </div>
       </div>
       <button onClick={onMenu} aria-label="Menu : partager l'app et guide d'utilisation" style={{
@@ -2012,7 +2065,7 @@ function BudgetFieldsEditor({ budget, onChange }) {
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10, padding: "9px 12px", background: "var(--accent-soft)", borderRadius: 9 }}>
         <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--accent-dark)" }}>Total prévisionnel</span>
-        <span style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 700, color: "var(--accent-dark)" }}>{total.toLocaleString("fr-FR")} FCFA</span>
+        <span style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 700, color: "var(--accent-dark)" }}>{total.toLocaleString("fr-FR")} {DEV}</span>
       </div>
     </div>
   );
@@ -2231,7 +2284,7 @@ function SeminarCard({ s, pastors, onClick }) {
         <ValidationBadge statut={s.validationStatut} />
         {s.budget && budgetTotal(s.budget) > 0 && (
           <span style={{ fontSize: 11, fontWeight: 700, color: "var(--accent-dark)", display: "flex", alignItems: "center", gap: 3 }}>
-            <Wallet size={12} /> {budgetTotal(s.budget).toLocaleString("fr-FR")} FCFA
+            <Wallet size={12} /> {budgetTotal(s.budget).toLocaleString("fr-FR")} {DEV}
           </span>
         )}
       </div>
@@ -3037,7 +3090,7 @@ function SeminarForm({ seminar, pastors, regions, onSave, onDelete, onClose }) {
         </div>
       </Field>
 
-      <Field label="Budget prévisionnel (FCFA)">
+      <Field label={`Budget prévisionnel (${DEV})`}>
         <BudgetFieldsEditor budget={budget} onChange={setBudget} />
       </Field>
 
@@ -3505,7 +3558,9 @@ function RegionsView({ regions, setRegions, showToast }) {
   return (
     <div>
       <div style={{ fontSize: 11.5, color: "var(--ink-soft)", background: "#fff", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 12px", marginBottom: 16, lineHeight: 1.5 }}>
-        Les 13 régions du Burkina Faso sont listées ci-dessous. Ajoutez, pour chaque région, les assemblées ouvertes ainsi que le nom et le contact du pasteur titulaire.
+        {PAYS_COURANT.code === "BF"
+          ? "Les 13 régions du Burkina Faso sont listées ci-dessous. Ajoutez, pour chaque région, les assemblées ouvertes ainsi que le nom et le contact du pasteur titulaire."
+          : `Ajoutez les régions (ou provinces, ou villes) de ${PAYS_COURANT.nom}, puis, dans chacune, les assemblées ouvertes avec le nom et le contact du pasteur titulaire.`}
       </div>
 
       {regions.map(r => (
@@ -3668,7 +3723,7 @@ function nomComplet(m) {
 }
 
 function comiteToText(assemblee, comite) {
-  const lignes = [`🏛 COMITÉ DIRECTEUR — ${assemblee}`, "Mission Parole de Vie Burkina", ""];
+  const lignes = [`🏛 COMITÉ DIRECTEUR — ${assemblee}`, SIGNATURE, ""];
   comite.forEach(m => {
     lignes.push(`• ${posteLibelle(m)} : ${nomComplet(m)}${m.telephone ? ` (${m.telephone})` : ""}`);
   });
@@ -4290,7 +4345,7 @@ function annonceDateTexte(a) {
 function annonceMessage(a, nom) {
   const L = [];
   const icone = a.type === "Réunion" ? "📢" : a.type === "Programme" ? "🗓️" : "📣";
-  L.push(`${icone} *${(a.type || "Annonce").toUpperCase()}* — Mission Parole de Vie Burkina`, "");
+  L.push(`${icone} *${(a.type || "Annonce").toUpperCase()}* — ${SIGNATURE}`, "");
   L.push(nom ? `Bonjour ${nom},` : "Bonjour à tous,", "");
   L.push(`*${a.titre}*`);
   if (a.date) L.push(`📅 ${annonceDateTexte(a)}`);
@@ -4299,7 +4354,7 @@ function annonceMessage(a, nom) {
   if (a.type !== "Réunion" && a.lieu) L.push(`📍 Lieu : ${a.lieu}`);
   if (a.type === "Réunion" && a.mode !== "presentiel" && a.lienVisio) {
     L.push("", `💻 *Visioconférence* : ${a.lienVisio}`, canEmbedVisio(a.lienVisio)
-      ? "À l'heure de la réunion, ouvrez l'app MPV Burkina et touchez « Rejoindre la visio » (ou touchez ce lien)."
+      ? `À l'heure de la réunion, ouvrez l'app ${APP_NOM_COURT} et touchez « Rejoindre la visio » (ou touchez ce lien).`
       : "À l'heure de la réunion, touchez le lien pour rejoindre (sur téléphone, l'application Jitsi Meet peut être proposée).");
   }
   if (a.contenu) L.push("", a.type === "Réunion" ? "*Ordre du jour :*" : "", a.contenu);
@@ -4677,7 +4732,7 @@ function compteRenduToText(a, cr) {
   const excuses = pres.filter(p => p.etat === "excuse").map(p => p.nom);
   const absents = pres.filter(p => p.etat === "absent").map(p => p.nom);
   const L = [
-    "📝 *COMPTE RENDU DE RÉUNION*", "Mission Parole de Vie Burkina", "",
+    "📝 *COMPTE RENDU DE RÉUNION*", SIGNATURE, "",
     `*${a.titre}*`, `📅 ${annonceDateTexte(a)}${a.type === "Réunion" && a.mode !== "presentiel" ? " · visioconférence" : a.lieu ? ` · ${a.lieu}` : ""}`,
   ];
   if (cr.president) L.push(`Présidée par : ${cr.president}`);
@@ -5115,7 +5170,7 @@ function MessagerieParSeminaire({ seminars, pastors }) {
   useEffect(() => {
     if (seminar) {
       setMessage(
-        `Bonjour,\n\nVous êtes affecté(e) au séminaire "${seminar.theme}" prévu le ${formatDateLong(seminar.date)}${seminar.heure ? " à " + seminar.heure : ""} à l'assemblée de ${seminar.assemblee || "—"}.\n\nMerci de confirmer votre disponibilité.\n\nDépartement Mission et Formation — Mission Parole de Vie Burkina`
+        `Bonjour,\n\nVous êtes affecté(e) au séminaire "${seminar.theme}" prévu le ${formatDateLong(seminar.date)}${seminar.heure ? " à " + seminar.heure : ""} à l'assemblée de ${seminar.assemblee || "—"}.\n\nMerci de confirmer votre disponibilité.\n\nDépartement Mission et Formation — ${SIGNATURE}`
       );
       setExtra([]);
     } else {
@@ -5249,7 +5304,7 @@ function MessagerieParGroupe({ pastors }) {
             <textarea
               style={{ ...inputStyle, minHeight: 130, resize: "vertical", fontSize: 13.5 }}
               value={message} onChange={e => setMessage(e.target.value)}
-              placeholder={`Bonjour,\n\nInformation destinée aux ${fonction.toLowerCase()}s…\n\nDépartement Mission et Formation — Mission Parole de Vie Burkina`}
+              placeholder={`Bonjour,\n\nInformation destinée aux ${fonction.toLowerCase()}s…\n\nDépartement Mission et Formation — ${SIGNATURE}`}
             />
           </Field>
 
@@ -5321,7 +5376,7 @@ function Direction({ leadership, setLeadership, showToast, unlocked, onUnlock, o
       { key: "pointFocal", label: "Point focal de la zone" },
       { key: "responsableDeptAfrique", label: "Chef du Département Afrique (Mission et Formation)" },
     ] },
-    { titre: "Coordination nationale — Burkina Faso", rows: [
+    { titre: `Coordination nationale — ${PAYS_COURANT.nom}`, rows: [
       { key: "coordonnateur", label: "Coordonnateur national" },
       { key: "secretaireBCN", label: "Secrétaire du BCN" },
       { key: "responsableMissionFormationPays", label: "Chef du Département national Mission et Formation" },
@@ -5966,7 +6021,7 @@ function financeToText(r) {
   if (r.financier) L.push(`Financier : ${r.financier}${r.telephone ? " (" + r.telephone + ")" : ""}`);
   L.push("", ...financeLines(r));
   if (r.observations) L.push("", "*Observations*", r.observations);
-  L.push("", "Mission Parole de Vie Burkina");
+  L.push("", SIGNATURE);
   return L.join("\n");
 }
 
@@ -6210,7 +6265,7 @@ function FinanceForm({ entry, financeReports, onSave, onDelete, onClose }) {
         </div>
       </div>
 
-      <div style={{ fontSize: 13, fontWeight: 700, color: "var(--primary)", margin: "4px 0 10px" }}>Montants reçus (FCFA)</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: "var(--primary)", margin: "4px 0 10px" }}>Montants reçus ({DEV})</div>
       {moneyInput("offrandes", "Offrandes")}
       {moneyInput("dimes", "Dîmes")}
       {moneyInput("bp", "BP")}
@@ -6303,7 +6358,7 @@ function FinanceRecap({ regions, leadership, financeReports, allExpenses, unlock
     `🟡 CONVENTION : ${fcfa(C.total)}`,
     ...FIN_DESTS.map(d => `${d.label} (${CONVENTION_PARTS[d.key]}%) : ${fcfa(C[d.key])}`),
     ...(manquantes.length ? ["", `Rapports manquants : ${manquantes.join(", ")}`] : []),
-    "", "Mission Parole de Vie Burkina",
+    "", SIGNATURE,
   ].join("\n");
 
   return (
@@ -6458,7 +6513,7 @@ function caisseToText(titre, c) {
     `${c.solde < 0 ? "🔴" : "🟢"} Solde en caisse : ${fcfa(c.solde)}`,
     `Dépenses prévues : ${fcfa(c.prevu)}`,
     `${c.disponible < 0 ? "🔴 DÉPASSEMENT" : "🟢 Disponible"} : ${fcfa(c.disponible)}`,
-    "", "Mission Parole de Vie Burkina",
+    "", SIGNATURE,
   ].join("\n");
 }
 
@@ -6705,7 +6760,7 @@ function ExpenseForm({ entry, caisse, onSave, onDelete, onClose }) {
       </Field>
       <div style={{ display: "flex", gap: 8 }}>
         <div style={{ flex: 1 }}>
-          <Field label="Montant (FCFA)">
+          <Field label={`Montant (${DEV})`}>
             <input type="number" inputMode="numeric" min="0" style={inputStyle} value={e.montant} onChange={ev => set("montant", ev.target.value)} placeholder="0" />
           </Field>
         </div>
@@ -7399,7 +7454,7 @@ const AXE1_FIELDS = [
   { key: "miniConvention", label: "Mini convention nationale" },
   { key: "objectifCellules", label: "Objectif cellules à implanter" },
   { key: "missionNationale", label: "Mission nationale intérieure" },
-  { key: "budget", label: "Budget prévisionnel (FCFA)" },
+  { key: "budget", label: `Budget prévisionnel (${DEV})` },
 ];
 
 const AXE4_FIELDS = [
@@ -7417,7 +7472,7 @@ const PROJET_AXE_FIELDS = [
   { key: "participants", label: "Participants moyen à former", type: "number" },
   { key: "publicCible", label: "Public cible", type: "text" },
   { key: "objectifs", label: "Objectifs", type: "textarea" },
-  { key: "budget", label: "Budget prévisionnel (FCFA)", type: "number" },
+  { key: "budget", label: `Budget prévisionnel (${DEV})`, type: "number" },
   { key: "formateurs", label: "Formateurs prévus", type: "number" },
 ];
 
@@ -7888,7 +7943,7 @@ function ValidationView({ seminars, setSeminars, coordSeminars, setCoordSeminars
               {item.lieu && <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 6 }}>📍 {item.lieu}</div>}
               {item.budget && budgetTotal(item.budget) > 0 && (
                 <div style={{ fontSize: 11.5, color: "var(--accent-dark)", marginTop: 4, fontWeight: 600 }}>
-                  Budget : {budgetTotal(item.budget).toLocaleString("fr-FR")} FCFA
+                  Budget : {budgetTotal(item.budget).toLocaleString("fr-FR")} {DEV}
                 </div>
               )}
               {unlocked && (item.validationStatut || "attente") === "attente" && (
@@ -8021,7 +8076,7 @@ function CoordSeminaires({ coordSeminars, setCoordSeminars, pastors, unlocked, s
                   <ValidationBadge statut={s.validationStatut} />
                   {s.budget && budgetTotal(s.budget) > 0 && (
                     <span style={{ fontSize: 11, fontWeight: 700, color: "var(--accent-dark)", display: "flex", alignItems: "center", gap: 3 }}>
-                      <Wallet size={12} /> {budgetTotal(s.budget).toLocaleString("fr-FR")} FCFA
+                      <Wallet size={12} /> {budgetTotal(s.budget).toLocaleString("fr-FR")} {DEV}
                     </span>
                   )}
                 </div>
@@ -8204,7 +8259,7 @@ function CoordSeminarForm({ seminar, pastors, onSave, onDelete, onClose }) {
         </div>
       </Field>
 
-      <Field label="Budget prévisionnel (FCFA)">
+      <Field label={`Budget prévisionnel (${DEV})`}>
         <BudgetFieldsEditor budget={budget} onChange={setBudget} />
       </Field>
 
@@ -8266,7 +8321,7 @@ function DeptHeads({ deptHeads, setDeptHeads, coordSeminars, unlocked, showToast
 
   useEffect(() => {
     if (seminar) {
-      setMessage(`Bonjour,\n\nUn séminaire de la coordination nationale "${seminar.theme}" est prévu le ${formatDateLong(seminar.date)}${seminar.heure ? " à " + seminar.heure : ""}${seminar.lieu ? " à " + seminar.lieu : ""}.\n\nMerci de votre présence.\n\nCoordination Nationale — Mission Parole de Vie Burkina`);
+      setMessage(`Bonjour,\n\nUn séminaire de la coordination nationale "${seminar.theme}" est prévu le ${formatDateLong(seminar.date)}${seminar.heure ? " à " + seminar.heure : ""}${seminar.lieu ? " à " + seminar.lieu : ""}.\n\nMerci de votre présence.\n\nCoordination Nationale — ${SIGNATURE}`);
     } else {
       setMessage("");
     }
@@ -8503,7 +8558,7 @@ function planToText(dept, titre, items) {
     if (Number(i.budget) > 0) L.push(`   Budget : ${fcfa(i.budget)}`);
   });
   const st = dpStats(items);
-  L.push("", `Total : ${st.total} activité(s) · ${st.realisees} réalisée(s) · budget ${fcfa(st.budget)}`, "", "Mission Parole de Vie Burkina");
+  L.push("", `Total : ${st.total} activité(s) · ${st.realisees} réalisée(s) · budget ${fcfa(st.budget)}`, "", SIGNATURE);
   return L.join("\n");
 }
 
@@ -8968,7 +9023,7 @@ function PlanItemForm({ entry, parents, onSave, onDelete, onClose }) {
         <Field label="Date prévue"><input type="date" style={inputStyle} value={f.date} onChange={e => set("date", e.target.value)} /></Field>
       )}
 
-      {num("budget", "Budget prévu (FCFA)", true)}
+      {num("budget", `Budget prévu (${DEV})`, true)}
 
       <Field label="Statut">
         <ChipPicker options={DP_STATUTS} value={f.statut} onChange={v => set("statut", v)} small />
@@ -8981,7 +9036,7 @@ function PlanItemForm({ entry, parents, onSave, onDelete, onClose }) {
             <div style={{ flex: 1 }}>{num("participantsAttendus", "Participants attendus")}</div>
             <div style={{ flex: 1 }}>{num("participantsReels", "Participants réels")}</div>
           </div>
-          {num("depenseReelle", "Dépense réelle (FCFA)", true)}
+          {num("depenseReelle", `Dépense réelle (${DEV})`, true)}
           {(f.budget !== "" || f.depenseReelle !== "") && (
             <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 12, color: ecart < 0 ? "var(--danger)" : "#1F7A5C" }}>
               {ecart < 0 ? `Dépassement de ${fcfa(-ecart)}` : `Économie de ${fcfa(ecart)}`}
@@ -9060,7 +9115,7 @@ function BilansListe({ dept, annee, bilans, onAdd, onOpen, statsFor }) {
               st.total ? `${st.realisees}/${st.actifs} activités réalisées${st.taux !== null ? ` (${st.taux} %)` : ""} · Budget ${fcfa(st.budget)} · Dépensé ${fcfa(st.depense)}` : "",
               b.resultats ? `\n*Résultats :* ${b.resultats}` : "", b.difficultes ? `*Difficultés :* ${b.difficultes}` : "",
               b.solutions ? `*Solutions :* ${b.solutions}` : "", b.decisions ? `*Décisions :* ${b.decisions}` : "",
-              b.redigePar ? `\nRédigé par ${b.redigePar}` : "", "Mission Parole de Vie Burkina",
+              b.redigePar ? `\nRédigé par ${b.redigePar}` : "", SIGNATURE,
             ].filter(Boolean).join("\n");
             return (
               <div key={b.id} style={{ background: "#fff", border: "1px solid var(--border)", borderLeft: "4px solid var(--accent)", borderRadius: 12, padding: "11px 12px" }}>
@@ -9152,7 +9207,7 @@ function PlansTableau({ deptPlans, annee }) {
     `📊 *Plans d'action ${annee} — Coordination nationale*`, "",
     ...rows.map(r => `• ${r.d} : ${r.annuel.total} activité(s) de l'année, ${r.mensuel.realisees}/${r.mensuel.actifs} tâches réalisées${r.mensuel.taux !== null ? ` (${r.mensuel.taux} %)` : ""}, budget ${fcfa(r.annuel.budget)}`),
     "", `Total : ${tot.annuel.total} activités · budget annuel ${fcfa(tot.annuel.budget)} · dépensé ${fcfa(tot.mensuel.depense)}`,
-    "", "Mission Parole de Vie Burkina",
+    "", SIGNATURE,
   ].join("\n");
 
   const trims = TRIMESTRES.map(t => ({ t, st: dpStats(de.filter(p => p.niveau === "annuel" && Number(p.trimestre) === t.n)) }));
@@ -9432,7 +9487,7 @@ function PlanAnnuelTab({ plansAnnuels, setPlansAnnuels, unlocked, showToast }) {
                     Plan d'action {p.annee}
                   </div>
                   <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 3 }}>
-                    {p.chargeDepartement ? `Chargé : ${p.chargeDepartement} · ` : ""}Budget Axe I prévu : {totalBudget.toLocaleString("fr-FR")} FCFA
+                    {p.chargeDepartement ? `Chargé : ${p.chargeDepartement} · ` : ""}Budget Axe I prévu : {totalBudget.toLocaleString("fr-FR")} {DEV}
                   </div>
                 </div>
                 {unlocked && (
@@ -9686,7 +9741,7 @@ function AxeProjetsSection({ titre, icon: Icon, projets, unlocked, onAdd, onEdit
               <div style={{ display: "flex", gap: 12, marginTop: 5, fontSize: 11, color: "var(--ink-soft)" }}>
                 {p.participants ? <span>{p.participants} participants</span> : null}
                 {p.formateurs ? <span>{p.formateurs} formateurs</span> : null}
-                {p.budget ? <span>{Number(p.budget).toLocaleString("fr-FR")} FCFA</span> : null}
+                {p.budget ? <span>{Number(p.budget).toLocaleString("fr-FR")} {DEV}</span> : null}
               </div>
             </div>
           ))}
@@ -10150,6 +10205,7 @@ function superieurDe(role, profil, { leadership, districts, regions }) {
 
 const EGLISE_SOUS = [
   ["role", "Mon rôle"],
+  ["pays", "Pays"],
   ["organigramme", "Organigramme"],
   ["districts", "Districts"],
   ["roles", "Qui fait quoi"],
@@ -10160,7 +10216,7 @@ const EGLISE_SOUS = [
 function EgliseTab({ sub, setSub, profil, setProfil, go, leadership, regions, districts, saveDistrict, deleteDistrict, pastors, deptHeads, activityReports, financeReports, natUnlocked, onUnlockNat, onLockNat, coordUnlocked, onUnlockCoord, onLockCoord, showToast }) {
   return (
     <div>
-      <SectionTitle sub="Organisation d'ALWM d'après le document cadre">Notre Église</SectionTitle>
+      <SectionTitle sub={`${drapeau(PAYS_COURANT.code)} ${PAYS_COURANT.nom} · organisation d'après le document cadre`}>Notre Église</SectionTitle>
       <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 14, paddingBottom: 2 }}>
         {EGLISE_SOUS.map(([k, l]) => (
           <button key={k} onClick={() => setSub(k)} style={{
@@ -10184,6 +10240,7 @@ function EgliseTab({ sub, setSub, profil, setProfil, go, leadership, regions, di
           coordUnlocked={coordUnlocked} onUnlockCoord={onUnlockCoord} onLockCoord={onLockCoord}
           showToast={showToast} />
       )}
+      {sub === "pays" && <VueAfrique />}
       {sub === "roles" && <QuiFaitQuoi go={go} />}
       {sub === "departements" && <DepartementsALWM deptHeads={deptHeads} />}
       {sub === "rencontres" && <RencontresFormations />}
@@ -10404,7 +10461,7 @@ function Organigramme({ leadership, regions, districts, deptHeads, go }) {
         <OrgLigne label="Chef du Département Afrique (Mission et Formation)" nom={leadership.responsableDeptAfrique} />
       </OrgNiveau>
       <OrgFleche />
-      <OrgNiveau sous="Burkina Faso" titre="Coordination nationale">
+      <OrgNiveau sous={`${drapeau(PAYS_COURANT.code)} ${PAYS_COURANT.nom}`} titre="Coordination nationale">
         <OrgLigne label="Coordonnateur national" nom={leadership.coordonnateur} />
         <OrgLigne label="Secrétaire du BCN" nom={leadership.secretaireBCN} />
         <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--ink-soft)", margin: "10px 0 2px" }}>Chefs de départements nationaux</div>
@@ -10550,12 +10607,12 @@ function DistrictDetail({ d, regions, activityReports, financeReports, onBack, o
 
   function messageRappel(l) {
     const manque = [!l.act && "le rapport d'activités", !l.fin && "le rapport financier"].filter(Boolean).join(" et ");
-    return `Bonjour ${l.pasteur || "Pasteur"},\nLe district ${d.nom} n'a pas encore reçu ${manque} de l'assemblée ${l.nom} pour la semaine ${texteSemaine}.\nMerci de le déposer dans l'app MPV : ${APP_URL}\nQue Dieu vous bénisse.`;
+    return `Bonjour ${l.pasteur || "Pasteur"},\nLe district ${d.nom} n'a pas encore reçu ${manque} de l'assemblée ${l.nom} pour la semaine ${texteSemaine}.\nMerci de le déposer dans l'app ${APP_NOM_COURT} : ${APP_URL}\nQue Dieu vous bénisse.`;
   }
   function partagerPoint() {
     const l = [`📊 DISTRICT ${d.nom.toUpperCase()} — rapports de la semaine ${texteSemaine}`, ""];
     lignes.forEach(x => l.push(`• ${x.nom} : activités ${x.act ? "✅" : "❌"} · finances ${x.fin ? "✅" : "❌"}`));
-    l.push("", `${lignes.filter(x => x.act && x.fin).length}/${lignes.length} assemblées à jour.`, `App MPV : ${APP_URL}`);
+    l.push("", `${lignes.filter(x => x.act && x.fin).length}/${lignes.length} assemblées à jour.`, `App ${APP_NOM_COURT} : ${APP_URL}`);
     window.open(`https://wa.me/?text=${encodeURIComponent(l.join("\n"))}`, "_blank");
   }
 
@@ -10782,6 +10839,159 @@ function RencontresFormations() {
             </div>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  PAYS : choix du pays au premier lancement + vue Afrique            */
+/* ------------------------------------------------------------------ */
+
+function ListePays({ onChoisir, actuel }) {
+  const [q, setQ] = useState("");
+  const norm = (x) => (x || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const filtre = PAYS.filter(p => !q || norm(p.nom).includes(norm(q)));
+  const groupe = (zone, titre) => {
+    const liste = filtre.filter(p => p.zone === zone);
+    if (liste.length === 0) return null;
+    return (
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--accent-dark)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{titre}</div>
+        <div style={{ background: "#fff", borderRadius: 13, border: "1px solid var(--border)", overflow: "hidden" }}>
+          {liste.map((p, i) => (
+            <button key={p.code} onClick={() => onChoisir(p.code)} style={{
+              display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", padding: "10px 12px",
+              borderTop: i ? "1px solid var(--border)" : "none", background: p.code === actuel ? "var(--accent-soft)" : "#fff"
+            }}>
+              <span style={{ fontSize: 22 }}>{drapeau(p.code)}</span>
+              <span style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>{p.nom}</span>
+              {p.code === actuel ? <CheckCircle2 size={17} color="var(--primary)" /> : <ChevronRight size={16} color="var(--ink-soft)" />}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+  return (
+    <div>
+      <div style={{ position: "relative", marginBottom: 14 }}>
+        <Search size={15} color="var(--ink-soft)" style={{ position: "absolute", left: 11, top: 12 }} />
+        <input style={{ ...inputStyle, paddingLeft: 33 }} value={q} onChange={e => setQ(e.target.value)} placeholder="Rechercher un pays" />
+      </div>
+      {groupe("afrique", "Afrique")}
+      {groupe("diaspora", "Diaspora")}
+      {filtre.length === 0 && <EmptyState icon={Globe} text="Aucun pays ne correspond. Demandez au Bureau Afrique de l'ajouter." />}
+    </div>
+  );
+}
+
+function EcranChoixPays() {
+  return (
+    <Shell>
+      <div style={{ background: "linear-gradient(135deg, var(--primary), var(--primary-light))", padding: "26px 20px 22px", textAlign: "center", flexShrink: 0 }}>
+        <div style={{ display: "flex", justifyContent: "center" }}><LogoBadge size={64} /></div>
+        <div style={{ fontFamily: "var(--font-display)", color: "#fff", fontSize: 21, fontWeight: 700, marginTop: 12 }}>{APP_NOM}</div>
+        <div style={{ color: "var(--accent)", fontSize: 12, fontWeight: 600, marginTop: 4 }}>Afrique et diaspora</div>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "18px 16px 30px" }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 700, color: "var(--primary)" }}>Choisissez votre pays</div>
+        <div style={{ fontSize: 12.5, color: "var(--ink-soft)", margin: "4px 0 16px", lineHeight: 1.45 }}>
+          Chaque pays a ses assemblées, ses séminaires, ses rapports et ses finances. Vous pourrez changer de pays plus tard dans le menu.
+        </div>
+        <ListePays onChoisir={choisirPays} />
+      </div>
+    </Shell>
+  );
+}
+
+// Vue Afrique : tous les pays qui utilisent l'app.
+function VueAfrique() {
+  const [lignes, setLignes] = useState(null);
+  const [changer, setChanger] = useState(false);
+  const lundi = mondayOf(new Date().toISOString().slice(0, 10));
+
+  useEffect(() => {
+    (async () => {
+      const actifs = await loadKey("pays-actifs", []);
+      const codes = [...new Set([PAYS_COURANT.code, ...(Array.isArray(actifs) ? actifs : [])])].filter(c => paysParCode(c));
+      const res = await Promise.all(codes.map(async (code) => {
+        const [reg, lead, dis, act, fin] = await Promise.all([
+          loadKeyPays(code, "regions-assemblies", code === "BF" ? REGIONS_DEFAULT : []),
+          loadKeyPays(code, "leadership-info", {}),
+          loadKeyPays(code, "districts", []),
+          loadKeyPays(code, "activity-reports", []),
+          loadKeyPays(code, "finance-reports", []),
+        ]);
+        const asm = flattenAssemblees(Array.isArray(reg) ? reg : []);
+        const dep = (liste) => asm.filter(a => (Array.isArray(liste) ? liste : []).some(r => r.assemblee === a && r.semaine === lundi)).length;
+        return {
+          pays: paysParCode(code), coordonnateur: lead?.coordonnateur || "", pointFocal: lead?.pointFocal || "",
+          assemblees: asm.length, districts: Array.isArray(dis) ? dis.length : 0, act: dep(act), fin: dep(fin),
+        };
+      }));
+      res.sort((a, b) => a.pays.nom.localeCompare(b.pays.nom, "fr"));
+      setLignes(res);
+    })();
+  }, []);
+
+  if (changer) {
+    return (
+      <div>
+        <button onClick={() => setChanger(false)} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13, fontWeight: 700, color: "var(--primary)", marginBottom: 10 }}>
+          <ChevronLeft size={16} /> Retour
+        </button>
+        <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 12, lineHeight: 1.45 }}>L'app va redémarrer sur les données du pays choisi.</div>
+        <ListePays onChoisir={choisirPays} actuel={PAYS_COURANT.code} />
+      </div>
+    );
+  }
+
+  const tot = (lignes || []).reduce((t, l) => ({ a: t.a + l.assemblees, act: t.act + l.act }), { a: 0, act: 0 });
+  return (
+    <div>
+      <div style={{ background: "linear-gradient(135deg, var(--primary), var(--primary-light))", color: "#fff", borderRadius: 16, padding: 16, marginBottom: 14 }}>
+        <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--accent)", fontWeight: 700 }}>Vous êtes sur</div>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 700, marginTop: 2 }}>{drapeau(PAYS_COURANT.code)} {PAYS_COURANT.nom}</div>
+        <button onClick={() => setChanger(true)} style={{ marginTop: 10, fontSize: 12, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,.15)", borderRadius: 8, padding: "6px 10px", display: "inline-flex", alignItems: "center", gap: 5 }}>
+          <Globe size={13} /> Changer de pays
+        </button>
+      </div>
+      <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--accent-dark)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 4 }}>Pays qui utilisent l'app</div>
+      <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 10, lineHeight: 1.4 }}>
+        Vue du Bureau Afrique et des points focaux : coordonnateur, assemblées et rapports d'activités de la semaine dans chaque pays.
+      </div>
+      {!lignes ? (
+        <div style={{ fontSize: 13, color: "var(--ink-soft)", padding: 16, textAlign: "center" }}>Chargement des pays…</div>
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+            <StatCard label="Pays" value={lignes.length} tone="var(--primary)" />
+            <StatCard label="Assemblées" value={tot.a} tone="var(--accent-dark)" />
+            <StatCard label="Rapports (sem.)" value={tot.act} tone="#1F7A5C" />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {lignes.map(l => (
+              <div key={l.pays.code} style={{ background: "#fff", borderRadius: 14, border: `1px solid ${l.pays.code === PAYS_COURANT.code ? "var(--primary)" : "var(--border)"}`, padding: "12px 14px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                  <span style={{ fontSize: 24 }}>{drapeau(l.pays.code)}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14.5, fontWeight: 700, color: "var(--primary)" }}>{l.pays.nom}{l.pays.zone === "diaspora" ? " · diaspora" : ""}</div>
+                    <div style={{ fontSize: 12, color: l.coordonnateur ? "var(--ink-soft)" : "var(--danger)" }}>Coordonnateur : {l.coordonnateur || "à renseigner"}</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 14, marginTop: 8, fontSize: 12, color: "var(--ink)" }}>
+                  <span><b>{l.assemblees}</b> assemblée{l.assemblees > 1 ? "s" : ""}</span>
+                  <span><b>{l.districts}</b> district{l.districts > 1 ? "s" : ""}</span>
+                  <span>Rapports : <b>{l.act}/{l.assemblees}</b> activités · <b>{l.fin}/{l.assemblees}</b> finances</span>
+                </div>
+                {l.pays.code !== PAYS_COURANT.code && (
+                  <button onClick={() => choisirPays(l.pays.code)} style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "var(--primary)" }}>Ouvrir ce pays →</button>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );

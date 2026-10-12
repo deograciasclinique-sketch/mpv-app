@@ -17,7 +17,7 @@ export function newVisioLink(titre) {
   const slug = (titre || "reunion").normalize("NFD").replace(/[̀-ͯ]/g, "")
     .replace(/[^A-Za-z0-9]+/g, "").slice(0, 24) || "Reunion";
   const rnd = Math.random().toString(36).slice(2, 8).toUpperCase();
-  return `https://${VISIO_SERVER}/MPV-${slug}-${rnd}`;
+  return `https://${VISIO_SERVER}/LWM-${slug}-${rnd}`;
 }
 
 // Découpe un lien Jitsi en { domain, room }, ou null si ce n'est pas un lien Jitsi de l'église.

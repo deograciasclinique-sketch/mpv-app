@@ -1,7 +1,7 @@
 /*
  * ORGANISATION DE L'ÉGLISE — d'après le Document cadre d'Africa Life Word Mission (ALWM)
- * (Mission de la Parole de Vie en Afrique). Mission Parole de Vie Burkina est la
- * Coordination nationale d'ALWM au Burkina Faso.
+ * (Mission de la Parole de Vie en Afrique). L'app « Life Words Mission Afrique » sert
+ * toutes les coordinations nationales d'Afrique et de la diaspora.
  *
  * Ce fichier ne contient que des données (aucun composant) : niveaux, rôles et
  * attributions, départements, rencontres, formations et circuit des rapports.

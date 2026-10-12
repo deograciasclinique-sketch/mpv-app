@@ -9,9 +9,9 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["favicon.png", "apple-touch-icon.png"],
       manifest: {
-        name: "Mission Parole de Vie Burkina",
-        short_name: "MPV Burkina",
-        description: "Application du département Mission et Formation — Mission Parole de Vie Burkina",
+        name: "Life Words Mission Afrique",
+        short_name: "LWM Afrique",
+        description: "Application de Life Words Mission Afrique — assemblées, séminaires, rapports et finances de chaque pays d'Afrique et de la diaspora",
         theme_color: "#1E2A4A",
         background_color: "#EDEEE6",
         display: "standalone",

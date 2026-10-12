@@ -1,6 +1,14 @@
-# Mission Parole de Vie Burkina — Mission & Formation
+# Life Words Mission Afrique
 
-Application du département Mission et Formation (React + Vite + Firebase, installable sur téléphone).
+Application de l'Église pour **tous les pays d'Afrique et de la diaspora** (React + Vite + Firebase, installable sur téléphone). Elle est née comme l'app du département Mission et Formation de Mission Parole de Vie Burkina.
+
+## Pays
+- Au premier lancement, chacun choisit son pays (54 pays d'Afrique + pays de la diaspora, liste dans `src/pays.js`). Le choix est gardé sur le téléphone (`localStorage`, clé `lwm-pays`) ; on change de pays dans **Menu → Mon pays** ou **Église → Pays** (l'app redémarre).
+- **Chaque pays a ses propres données** : régions et assemblées, répertoire, séminaires, programmes, rapports, finances, caisses, membres, districts, plans des départements, annonces. Dans Firestore, les documents d'un pays sont préfixés par son code : `CI__seminars-list`, `CM__regions-assemblies`, sous-collection `CI__assembly-members/items`…
+- **Le Burkina Faso garde ses documents d'origine, sans préfixe** : aucune donnée existante n'a été déplacée.
+- Communs à toute l'Afrique : `leadership-afrique` (Président, Vice-Président, Secrétaire du Bureau Afrique, Chef de département Afrique), `missionaries-africa` et `pays-actifs` (pays qui utilisent l'app).
+- La monnaie (FCFA, NGN, CDF, EUR…) et l'indicatif WhatsApp (+226, +225, +237…) suivent le pays choisi.
+- **Église → Pays** : vue du Bureau Afrique avec chaque pays qui utilise l'app (coordonnateur, assemblées, districts, rapports de la semaine) et bouton pour ouvrir un autre pays.
 
 ## Onglets principaux
 - Accueil, **Église**, Séminaires, Programme, Bible, Répertoire, Coordination, Messages, Direction
@@ -81,7 +89,7 @@ Chaque fiche du Répertoire peut être rattachée à un département de la coord
 - partage du résumé par WhatsApp, copie avec les propos. Chaque compte rendu est un document `cr-<id de la réunion>`.
 
 ## Données
-Toutes les données sont dans Firestore, collection `mpv-data` (voir `firestore.rules`).
+Toutes les données sont dans Firestore, collection `mpv-data` (voir `firestore.rules`), un jeu de documents par pays (voir « Pays » plus haut).
 Les nouveaux documents sont `finance-reports`, `activity-reports`, `expense-reports`, `dept-plans`, `dept-bilans`, `dept-codes` et `annonces`.
 
 Les codes d'accès de l'onglet Direction sont masqués tant que le code du chef du département n'est pas saisi.

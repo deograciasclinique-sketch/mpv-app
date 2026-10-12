@@ -3,6 +3,7 @@ import {
   getFirestore, doc, getDoc, setDoc, runTransaction, collection, getDocs, deleteDoc,
   query, where, getCountFromServer, writeBatch,
 } from "firebase/firestore";
+import { prefixePays } from "./pays.js";
 
 /*
  * CONFIGURATION DE VOTRE PROJET FIREBASE (lwm-burkina).
@@ -24,9 +25,32 @@ export const db = getFirestore(app);
 // stockées comme des documents dans la collection "mpv-data".
 // Chaque "clé" (ex: "seminars-list") correspond à un document.
 
+// ------------------------------------------------------------------
+// DONNÉES PAR PAYS
+// Chaque pays a ses propres documents : « <CODE>__<clé> » (ex : CI__seminars-list).
+// Le Burkina Faso garde ses documents d'origine, sans préfixe.
+// Quelques clés sont communes à toute l'Afrique (Bureau Afrique).
+// ------------------------------------------------------------------
+const CLES_AFRIQUE = new Set(["leadership-afrique", "missionaries-africa", "pays-actifs"]);
+function cle(key, code) {
+  return CLES_AFRIQUE.has(key) ? key : prefixePays(code) + key;
+}
+
+// Lire une clé d'un autre pays (vue Afrique), sans changer de pays.
+export async function loadKeyPays(code, key, fallback) {
+  try {
+    const snap = await getDoc(doc(db, "mpv-data", cle(key, code)));
+    if (snap.exists() && snap.data().value) return JSON.parse(snap.data().value);
+    return fallback;
+  } catch (e) {
+    console.error("Erreur de chargement Firestore:", code, key, e);
+    return fallback;
+  }
+}
+
 export async function loadKey(key, fallback) {
   try {
-    const ref = doc(db, "mpv-data", key);
+    const ref = doc(db, "mpv-data", cle(key));
     const snap = await getDoc(ref);
     if (snap.exists() && snap.data().value) {
       return JSON.parse(snap.data().value);
@@ -40,7 +64,7 @@ export async function loadKey(key, fallback) {
 
 export async function saveKey(key, value) {
   try {
-    const ref = doc(db, "mpv-data", key);
+    const ref = doc(db, "mpv-data", cle(key));
     await setDoc(ref, { value: JSON.stringify(value), updatedAt: Date.now() });
     return true;
   } catch (e) {
@@ -54,7 +78,7 @@ export async function saveKey(key, value) {
 // n'efface jamais celui d'une autre. Renvoie la nouvelle valeur, ou null en cas d'échec.
 export async function updateKey(key, fallback, updater) {
   try {
-    const ref = doc(db, "mpv-data", key);
+    const ref = doc(db, "mpv-data", cle(key));
     let next = null;
     await runTransaction(db, async (tx) => {
       const snap = await tx.get(ref);
@@ -77,7 +101,7 @@ export async function updateKey(key, fallback, updater) {
 // Les champs "assemblee", "categorie" et "comite" sont copiés en clair pour
 // pouvoir filtrer et compter côté serveur.
 // ------------------------------------------------------------------
-const membresCol = () => collection(db, "mpv-data", "assembly-members", "items");
+const membresCol = () => collection(db, "mpv-data", cle("assembly-members"), "items");
 
 function membreDoc(m) {
   return {
@@ -138,7 +162,7 @@ export async function countMembres(filtres = {}) {
 // Recopie chaque membre dans sa propre fiche, puis vide l'ancienne liste.
 export async function migrerAnciensMembres(normaliser) {
   try {
-    const ref = doc(db, "mpv-data", "assembly-members");
+    const ref = doc(db, "mpv-data", cle("assembly-members"));
     const snap = await getDoc(ref);
     const anciens = snap.exists() && snap.data().value ? JSON.parse(snap.data().value) : [];
     if (!Array.isArray(anciens) || anciens.length === 0) return 0;
