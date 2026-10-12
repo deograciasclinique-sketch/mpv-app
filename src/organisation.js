@@ -1,6 +1,6 @@
 /*
  * ORGANISATION DE L'ÉGLISE — d'après le Document cadre d'Africa Life Word Mission (ALWM)
- * (Mission de la Parole de Vie en Afrique). L'app « Life Words Mission Afrique » sert
+ * (Mission de la Parole de Vie en Afrique). L'app « Life Word Mission » sert
  * toutes les coordinations nationales d'Afrique et de la diaspora.
  *
  * Ce fichier ne contient que des données (aucun composant) : niveaux, rôles et

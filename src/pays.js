@@ -1,5 +1,5 @@
 /*
- * PAYS — Life Words Mission Afrique est utilisée par toutes les coordinations
+ * PAYS — Life Word Mission est utilisée par toutes les coordinations
  * nationales d'Afrique et de la diaspora. Chaque pays a ses propres données
  * (assemblées, séminaires, rapports, finances, membres, districts).
  *
@@ -7,8 +7,8 @@
  * Changer de pays recharge l'application.
  */
 
-export const APP_NOM = "Life Words Mission Afrique";
-export const APP_NOM_COURT = "LWM Afrique";
+export const APP_NOM = "Life Word Mission";
+export const APP_NOM_COURT = "LWM";
 
 // Pays dont les données sont stockées sans préfixe (données historiques de l'app).
 export const PAYS_HISTORIQUE = "BF";

@@ -1,4 +1,4 @@
-# Life Words Mission Afrique
+# Life Word Mission
 
 Application de l'Église pour **tous les pays d'Afrique et de la diaspora** (React + Vite + Firebase, installable sur téléphone). Elle est née comme l'app du département Mission et Formation de Mission Parole de Vie Burkina.
 
