@@ -3,7 +3,23 @@
 Application du département Mission et Formation (React + Vite + Firebase, installable sur téléphone).
 
 ## Onglets principaux
-- Accueil, Séminaires, Programme, Bible, Répertoire, Coordination, Messages, Direction
+- Accueil, **Église**, Séminaires, Programme, Bible, Répertoire, Coordination, Messages, Direction
+
+## Église (document cadre ALWM)
+L'onglet **Église** reprend l'organisation du *Document cadre d'Africa Life Word Mission* (Mission Parole de Vie Burkina = Coordination nationale d'ALWM au Burkina). Tout le contenu est dans `src/organisation.js`.
+- **Mon rôle** : chacun choisit son niveau (Bureau Afrique, Coordination nationale, District, Assemblée, Membre) et sa fonction. L'app affiche ses missions, à qui il rend compte, l'état des rapports de la semaine de son assemblée et ses raccourcis. Le choix est gardé sur le téléphone (`localStorage`, clé `mpv-profil`) et ne donne aucun accès protégé. Une carte « Mon rôle » apparaît sur l'accueil.
+- **Organigramme** : Bureau Afrique → Coordination nationale (chefs des 8 départements) → Districts → Comité Directeur des assemblées, avec les noms saisis dans Direction, Coord. → Responsables et Districts.
+- **Districts** (document `districts`) : un district regroupe au moins deux assemblées, avec son coordonnateur et son secrétaire. Pour chaque semaine, l'app montre quelles assemblées ont déposé le rapport d'activités et le rapport financier, avec un rappel WhatsApp au pasteur et le partage du point de la semaine. Création et modification avec le code du coordonnateur national (ou du chef du département tant que ce code n'existe pas).
+- **Qui fait quoi** : le circuit des rapports (Assemblée → District → Coordination nationale → Point focal → Bureau Afrique) et les attributions de chaque responsable.
+- **Départements** : les 8 départements officiels (DMF, Communication, Arts et Culture, Finances, Protocole, Développement Socioéconomique et Famille, Patrimoine/Logistique/Investissements, Affaires Juridiques et Règlementation).
+- **Rencontres** : conventions, QG, CPP, réunions des bureaux, cultes ; formations (classique, capacitation, renforcement des capacités), séminaire biblique et casse de béquilles.
+
+Alignements faits dans le reste de l'app :
+- Les plans des départements utilisent les 8 départements officiels (+ « Autres »). Les anciens noms (« Missions et Formations », « Finance », « Patrimoine », « Socioculturel et Famille ») sont convertis automatiquement : plans, bilans, codes d'accès et fiches du répertoire sont conservés.
+- Postes du Comité Directeur conformes au document (Pasteur principal, adjoint, secrétaires, trésorier(e), agent comptable, porte-parole de chaque département, conseillers) ; les anciens libellés sont convertis à l'affichage.
+- Nouvelles fonctions dans le répertoire (Point focal, Coordonnateur national, Chef de département national, Coordonnateur de district, Délégué de district, Pasteur principal…).
+- Nouveaux types de programme : QG District, Culte d'ensemble, CPP, Casse de béquilles.
+- Direction : Bureau Afrique (PA, Vice-Président, Secrétaire, Point focal, Chef de département Afrique) et Coordination nationale (Coordonnateur, Secrétaire du BCN, Chef du département Mission et Formation).
 - **Rapport** : rapports des séminaires, **rapport hebdomadaire d'activités** (culte, mission, formation, famille, bilan) et rapport de coordination
 - **Finances** : chaque financier d'assemblée dépose le rapport financier de la semaine (offrandes, dîmes, BP, dons volontaires). La répartition Assemblée / District / Coordination / Afrique est calculée automatiquement. Le récapitulatif national est protégé par le code du chef du département.
 

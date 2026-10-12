@@ -5,12 +5,17 @@ import {
   ClipboardList, FileText, BarChart3, Image as ImageIcon, Video, Paperclip,
   BookOpen, Lock, Unlock, Target, CheckCircle2, AlertTriangle, ExternalLink,
   ChevronLeft, Building2, Navigation, Share2, XCircle, Wallet, ShieldCheck, Filter, Globe, Eye, EyeOff, Camera,
-  Menu, QrCode, Smartphone, Megaphone, UserPlus, CheckSquare, Square, RefreshCw, Mic, MicOff, ImagePlus, ClipboardCheck
+  Menu, QrCode, Smartphone, Megaphone, UserPlus, CheckSquare, Square, RefreshCw, Mic, MicOff, ImagePlus, ClipboardCheck,
+  Network, UserCog, ArrowDown, GraduationCap, CalendarClock, Church
 } from "lucide-react";
 import QRCode from "qrcode";
 import { loadKey, saveKey, updateKey, loadMembres, saveMembre, deleteMembre, countMembres, migrerAnciensMembres } from "./firebase.js";
 import { newVisioLink, canEmbedVisio, VISIO_SERVER } from "./visio.js";
 import { RejoindreVisio, BadgeReunion, RappelsVisio } from "./VisioRoom.jsx";
+import {
+  NIVEAUX, ROLES, roleById, DEPARTEMENTS_ALWM, DEPARTEMENTS_NOMS, normDept, POSTES_CD, POSTES_AUTRES, normPoste,
+  FONCTIONS_ORGANISATION, RENCONTRES, FORMATIONS, CIRCUIT_RAPPORTS,
+} from "./organisation.js";
 
 /* ------------------------------------------------------------------ */
 /*  Données par défaut                                                */
@@ -42,8 +47,12 @@ const PASTORS_DEFAULT = [
 
 const LEADERSHIP_DEFAULT = {
   presidentAfrique: "",
+  vicePresidentAfrique: "",
+  secretaireBA: "",
+  pointFocal: "",
   responsableDeptAfrique: "",
   coordonnateur: "",
+  secretaireBCN: "",
   responsableMissionFormationPays: "",
   pinChefDepartement: "",
   pinCoordonnateurNational: "",
@@ -68,7 +77,11 @@ const VALIDATION_STATUTS = {
   rejete: { label: "Rejeté", tone: "var(--danger)", icon: XCircle },
 };
 
-const TYPES_PROGRAMME = ["Séminaire", "Formation", "Prière", "Communion", "Retraite", "Convention", "QG National"];
+const TYPES_PROGRAMME = [
+  "Séminaire", "Formation", "Prière", "Communion", "Retraite", "Convention", "QG National",
+  // Rencontres du document cadre ALWM
+  "QG District", "Culte d'ensemble", "CPP", "Casse de béquilles",
+];
 const TYPES_PROGRAMME_ASSEMBLEE = TYPES_PROGRAMME.filter(t => t !== "Convention" && t !== "QG National");
 const GROUPES_ACTION = ["Jeunes", "Hommes", "Femmes", "Plus jeunes"];
 const TYPE_TONES = {
@@ -79,12 +92,18 @@ const TYPE_TONES = {
   Retraite: "var(--danger)",
   Convention: "#B8860B",
   "QG National": "#2F4270",
+  "QG District": "#3E5A8C",
+  "Culte d'ensemble": "#8A4F7D",
+  CPP: "#5B7A3A",
+  "Casse de béquilles": "#C2571A",
 };
 
 const FONCTIONS = [
   "Pasteur", "Prédicateur", "Aspirant prédicateur", "Coordonnateur",
   "PF Afrique", "PA", "Chef du Département Afrique", "Responsable Département Pays",
   "Missionnaire Pays", "Missionnaire Afrique",
+  // Fonctions du document cadre ALWM
+  ...FONCTIONS_ORGANISATION,
 ];
 
 const REPORT_FIELDS = [
@@ -830,6 +849,23 @@ function DaysBadge({ days }) {
 /*  App principale                                                    */
 /* ------------------------------------------------------------------ */
 
+// Remet l'écran en haut (après un changement d'onglet ou un enregistrement).
+function remonter() {
+  try { const el = document.getElementById("mpv-scroll"); if (el) el.scrollTop = 0; } catch (e) {}
+}
+
+// Conversion des anciens noms de départements (données déjà saisies).
+function normDeptListe(liste) {
+  return (Array.isArray(liste) ? liste : []).map(x => x && x.departement ? { ...x, departement: normDept(x.departement) } : x);
+}
+function normDeptCodes(codes) {
+  const out = {};
+  // Les clés déjà officielles gardent la priorité sur les anciennes.
+  Object.entries(codes || {}).forEach(([k, v]) => { const n = normDept(k); if (n === k || !(n in out)) out[n] = v; });
+  Object.entries(codes || {}).forEach(([k, v]) => { if (normDept(k) === k) out[k] = v; });
+  return out;
+}
+
 export default function App() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("accueil");
@@ -853,6 +889,9 @@ export default function App() {
   const [deptBilans, setDeptBilans] = useState([]);
   const [deptCodes, setDeptCodes] = useState({});
   const [annonces, setAnnonces] = useState([]);
+  const [districts, setDistricts] = useState([]);
+  const [profil, setProfilState] = useState(lireProfil);
+  const [egliseSub, setEgliseSub] = useState(() => lireProfil() ? "organigramme" : "role");
   const [coordUnlocked, setCoordUnlocked] = useState(false);
   const [coordNatUnlocked, setCoordNatUnlocked] = useState(false);
   const [toast, setToast] = useState(null);
@@ -863,6 +902,15 @@ export default function App() {
       setCoordNatUnlocked(sessionStorage.getItem("mpv-coordnat-unlocked") === "true");
     } catch (e) {}
   }, []);
+
+  function setProfil(p) { setProfilState(p); ecrireProfil(p); }
+  // Navigation : "eglise:districts" ouvre l'onglet Église sur la sous-partie Districts.
+  function go(cible) {
+    const [t, sous] = String(cible).split(":");
+    if (sous) setEgliseSub(sous);
+    setTab(t);
+    remonter();
+  }
 
   function unlockCoord() {
     setCoordUnlocked(true);
@@ -883,7 +931,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [r, p, s, l, wp, sr, cs, dh, ap, br, mi, pa, ph, fr, ar, er, dpl, dbi, dco, ann] = await Promise.all([
+      const [r, p, s, l, wp, sr, cs, dh, ap, br, mi, pa, ph, fr, ar, er, dpl, dbi, dco, ann, dis] = await Promise.all([
         loadKey("regions-assemblies", REGIONS_DEFAULT),
         loadKey("pastors-directory", PASTORS_DEFAULT),
         loadKey("seminars-list", []),
@@ -904,14 +952,15 @@ export default function App() {
         loadKey("dept-bilans", []),
         loadKey("dept-codes", {}),
         loadKey("annonces", []),
+        loadKey("districts", []),
       ]);
-      const pWithPhotos = p.map(x => ({ ...x, photo: (ph && ph[x.id]) || x.photo || null }));
+      const pWithPhotos = p.map(x => ({ ...x, departementCoord: x.departementCoord ? normDept(x.departementCoord) : "", photo: (ph && ph[x.id]) || x.photo || null }));
       setRegions(r); setPastors(pWithPhotos); setPastorsPhotos(ph || {}); setSeminars(s); setLeadership(l);
       setWeeklyPrograms(wp); setSeminarReports(sr);
       setCoordSeminars(cs); setDeptHeads(dh); setActionPlans(ap);
       setBibleReports(br); setMissionaries(mi); setPlansAnnuels(pa);
       setFinanceReports(fr); setActivityReports(ar); setExpenseReports(er);
-      setDeptPlans(dpl); setDeptBilans(dbi); setDeptCodes(dco || {}); setAnnonces(ann || []);
+      setDeptPlans(normDeptListe(dpl)); setDeptBilans(normDeptListe(dbi)); setDeptCodes(normDeptCodes(dco)); setAnnonces(ann || []); setDistricts(Array.isArray(dis) ? dis : []);
       setLoading(false);
     })();
   }, []);
@@ -972,12 +1021,18 @@ export default function App() {
   const deleteActivity = (entry) => upsertShared("activity-reports", setActivityReports, entry, true);
   const saveExpense = (entry) => upsertShared("expense-reports", setExpenseReports, entry, false);
   const deleteExpense = (entry) => upsertShared("expense-reports", setExpenseReports, entry, true);
-  const saveDeptPlan = (entry) => upsertShared("dept-plans", setDeptPlans, entry, false);
-  const deleteDeptPlan = (entry) => upsertShared("dept-plans", setDeptPlans, entry, true);
-  const saveDeptBilan = (entry) => upsertShared("dept-bilans", setDeptBilans, entry, false);
-  const deleteDeptBilan = (entry) => upsertShared("dept-bilans", setDeptBilans, entry, true);
+  // Les listes partagées sont relues depuis le serveur à chaque dépôt : on y applique
+  // aussi la conversion des anciens noms de départements.
+  const setDeptPlansN = (l) => setDeptPlans(normDeptListe(l));
+  const setDeptBilansN = (l) => setDeptBilans(normDeptListe(l));
+  const saveDeptPlan = (entry) => upsertShared("dept-plans", setDeptPlansN, entry, false);
+  const deleteDeptPlan = (entry) => upsertShared("dept-plans", setDeptPlansN, entry, true);
+  const saveDeptBilan = (entry) => upsertShared("dept-bilans", setDeptBilansN, entry, false);
+  const deleteDeptBilan = (entry) => upsertShared("dept-bilans", setDeptBilansN, entry, true);
   const saveAnnonce = (entry) => upsertShared("annonces", setAnnonces, entry, false);
   const deleteAnnonce = (entry) => upsertShared("annonces", setAnnonces, entry, true);
+  const saveDistrict = (entry) => upsertShared("districts", setDistricts, entry, false);
+  const deleteDistrict = (entry) => upsertShared("districts", setDistricts, entry, true);
   // Membres des assemblées : passage unique de l'ancien format (une seule liste)
   // vers une fiche par membre.
   useEffect(() => {
@@ -985,7 +1040,7 @@ export default function App() {
   }, []);
   async function saveDeptCode(dept, code) {
     const next = await updateKey("dept-codes", {}, (cur) => ({ ...(cur || {}), [dept]: code }));
-    if (next) { setDeptCodes(next); return true; }
+    if (next) { setDeptCodes(normDeptCodes(next)); return true; }
     showToast("⚠ Échec de l'enregistrement — réessayez (vérifiez la connexion)");
     return false;
   }
@@ -1009,10 +1064,20 @@ export default function App() {
   return (
     <Shell>
       <Header onMenu={() => setTab("aide")} active={tab === "aide"} />
-      <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 90px" }}>
-        {tab === "aide" && <MenuTab setTab={setTab} showToast={showToast} />}
+      <div id="mpv-scroll" style={{ flex: 1, overflowY: "auto", padding: "16px 16px 90px" }}>
+        {tab === "aide" && <MenuTab setTab={go} showToast={showToast} />}
         {tab === "accueil" && (
-          <Accueil seminars={seminars} coordSeminars={coordSeminars} pastors={pastors} regions={regions} setTab={setTab} annonces={annonces} />
+          <Accueil seminars={seminars} coordSeminars={coordSeminars} pastors={pastors} regions={regions} setTab={go} annonces={annonces} profil={profil} />
+        )}
+        {tab === "eglise" && (
+          <EgliseTab
+            sub={egliseSub} setSub={setEgliseSub} profil={profil} setProfil={setProfil} go={go}
+            leadership={leadership} regions={regions} districts={districts} saveDistrict={saveDistrict} deleteDistrict={deleteDistrict}
+            pastors={pastors} deptHeads={deptHeads} activityReports={activityReports} financeReports={financeReports}
+            natUnlocked={coordNatUnlocked} onUnlockNat={unlockCoordNat} onLockNat={lockCoordNat}
+            coordUnlocked={coordUnlocked} onUnlockCoord={unlockCoord} onLockCoord={lockCoord}
+            showToast={showToast}
+          />
         )}
         {tab === "seminaires" && (
           <SeminairesTab
@@ -1170,6 +1235,19 @@ const GUIDE = [
     points: [
       "Le verset du jour, les chiffres clés et les rappels des programmes des 7 prochains jours.",
       "Les boutons ronds en haut ouvrent directement Séminaires, Programme, Bible, Rapport et Finances.",
+      "La carte « Mon rôle » affiche vos raccourcis selon votre fonction dans l'Église.",
+    ],
+  },
+  {
+    tab: "eglise", icon: Church, titre: "Église",
+    resume: "L'organisation de l'Église d'après le document cadre ALWM.",
+    points: [
+      "« Mon rôle » : choisissez votre fonction (pasteur principal, trésorier, secrétaire, coordonnateur…). L'app affiche vos missions, à qui vous rendez compte et vos raccourcis.",
+      "« Organigramme » : Bureau Afrique, Coordination nationale, districts et assemblées, avec les noms des responsables.",
+      "« Districts » : chaque district et le suivi des rapports de ses assemblées, semaine par semaine, avec un rappel WhatsApp. Le coordonnateur national crée les districts.",
+      "« Qui fait quoi » : le circuit des rapports et les attributions de chaque responsable.",
+      "« Départements » : les 8 départements officiels et leurs chefs.",
+      "« Rencontres » : conventions, QG, CPP, cultes, formations et séminaires bibliques.",
     ],
   },
   {
@@ -1455,6 +1533,7 @@ function Header({ onMenu, active }) {
 function BottomNav({ tab, setTab, badge }) {
   const items = [
     { id: "accueil", label: "Accueil", icon: Home },
+    { id: "eglise", label: "Église", icon: Church },
     { id: "seminaires", label: "Sémin.", icon: CalendarDays },
     { id: "programme", label: "Progr.", icon: ClipboardList },
     { id: "rapport", label: "Rapport", icon: FileText },
@@ -1588,7 +1667,7 @@ function AssembleeSelect({ regions, value, onChange, style }) {
 /*  ACCUEIL                                                            */
 /* ------------------------------------------------------------------ */
 
-function Accueil({ seminars, coordSeminars, pastors, regions, setTab, annonces }) {
+function Accueil({ seminars, coordSeminars, pastors, regions, setTab, annonces, profil }) {
   const tous = [
     ...seminars.map(s => ({ ...s, _niveau: "Assemblée" })),
     ...(coordSeminars || []).map(s => ({ ...s, _niveau: "Coordination nationale" })),
@@ -1641,6 +1720,8 @@ function Accueil({ seminars, coordSeminars, pastors, regions, setTab, annonces }
           );
         })}
       </div>
+
+      <CarteMonRole profil={profil} go={setTab} />
 
       <VerseOfTheDay />
 
@@ -3539,7 +3620,10 @@ function CategoriesCards({ membres }) {
   );
 }
 const SITUATIONS_MATRIMONIALES = ["Célibataire", "Marié(e)", "Fiancé(e)", "Veuf / Veuve", "Divorcé(e)"];
-const POSTES_COMITE = [
+// Postes du Comité Directeur (document cadre) puis autres responsabilités.
+// Les anciens libellés (« Pasteur titulaire »…) sont convertis par normPoste.
+const POSTES_COMITE = [...POSTES_CD, ...POSTES_AUTRES];
+const POSTES_COMITE_ANCIENS = [
   "Pasteur titulaire",
   "Président du comité",
   "Vice-président",
@@ -3602,7 +3686,8 @@ function useMembres(assemblee, showToast) {
     if (assemblee === undefined) { setMembres([]); return; }
     setLoading(true); setErreur(false);
     const list = await loadMembres(assemblee);
-    if (list === null) { setErreur(true); setMembres([]); } else setMembres(list);
+    if (list === null) { setErreur(true); setMembres([]); }
+    else setMembres(list.map(m => m.responsabilite ? { ...m, responsabilite: normPoste(m.responsabilite) } : m));
     setLoading(false);
   }
   useEffect(() => { charger(); }, [assemblee]);
@@ -4161,6 +4246,7 @@ const ANNONCE_MODES = [
 function telDigits(t) { return (t || "").replace(/\D/g, ""); }
 
 function matchDept(text, dept) {
+  if (text && normDept(text) === normDept(dept)) return true;
   const norm = (x) => (x || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   const key = norm(dept).split(" ")[0];
   return !!text && norm(text).includes(key);
@@ -5227,18 +5313,28 @@ function Direction({ leadership, setLeadership, showToast, unlocked, onUnlock, o
     showToast("Informations mises à jour");
   }
 
-  const rows = [
-    { key: "presidentAfrique", label: "Président Afrique" },
-    { key: "responsableDeptAfrique", label: "Responsable Département Afrique" },
-    { key: "coordonnateur", label: "Coordonnateur" },
-    { key: "responsableMissionFormationPays", label: "Responsable Mission et Formation (Burkina Faso)" },
+  const groupes = [
+    { titre: "Bureau Afrique", rows: [
+      { key: "presidentAfrique", label: "Président Afrique (PA)" },
+      { key: "vicePresidentAfrique", label: "Vice-Président Afrique" },
+      { key: "secretaireBA", label: "Secrétaire du Bureau Afrique" },
+      { key: "pointFocal", label: "Point focal de la zone" },
+      { key: "responsableDeptAfrique", label: "Chef du Département Afrique (Mission et Formation)" },
+    ] },
+    { titre: "Coordination nationale — Burkina Faso", rows: [
+      { key: "coordonnateur", label: "Coordonnateur national" },
+      { key: "secretaireBCN", label: "Secrétaire du BCN" },
+      { key: "responsableMissionFormationPays", label: "Chef du Département national Mission et Formation" },
+    ] },
   ];
 
   return (
     <div>
       <SectionTitle sub="Responsables de la mission, du pays au continent">Direction</SectionTitle>
 
-      <div style={{ background: "#fff", borderRadius: 14, border: "1px solid var(--border)", padding: "16px", marginBottom: 16 }}>
+      {groupes.map(({ titre, rows }) => (
+      <div key={titre} style={{ background: "#fff", borderRadius: 14, border: "1px solid var(--border)", padding: "16px", marginBottom: 16 }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 15, fontWeight: 700, color: "var(--primary)", marginBottom: 10 }}>{titre}</div>
         {rows.map((r, i) => (
           <div key={r.key} style={{ marginBottom: i < rows.length - 1 ? 14 : 0 }}>
             <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--accent-dark)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 5 }}>{r.label}</div>
@@ -5251,6 +5347,7 @@ function Direction({ leadership, setLeadership, showToast, unlocked, onUnlock, o
           </div>
         ))}
       </div>
+      ))}
 
       {leadership.pinChefDepartement && !unlocked ? (
         <CoordLockPanel
@@ -8338,7 +8435,9 @@ function DeptHeadForm({ head, onSave, onDelete, onClose }) {
 /*  PLANS D'ACTION DES DÉPARTEMENTS (annuel / trimestriel / mensuel)    */
 /* ------------------------------------------------------------------ */
 
-const DEPARTEMENTS_COORD = ["Missions et Formations", "Communication", "Finance", "Patrimoine", "Socioculturel et Famille", "Autres"];
+// Les 8 départements du document cadre ALWM (+ « Autres »). Les anciens noms
+// (« Missions et Formations », « Finance »…) sont convertis au chargement par normDept.
+const DEPARTEMENTS_COORD = DEPARTEMENTS_NOMS;
 const DP_AXES = [
   "Évangélisation & mission", "Formation des prédicateurs", "Séminaires & conventions", "Implantation de cellules",
   "Prière & intercession", "Communication & médias", "Finances & collecte", "Patrimoine (terrains, lieux de culte, matériel)",
@@ -8409,12 +8508,14 @@ function planToText(dept, titre, items) {
 }
 
 function readUnlockedDepts() {
-  try { return JSON.parse(sessionStorage.getItem("mpv-dept-unlocked") || "[]"); } catch (e) { return []; }
+  try { return JSON.parse(sessionStorage.getItem("mpv-dept-unlocked") || "[]").map(normDept); } catch (e) { return []; }
 }
 function writeUnlockedDepts(list) {
   try { sessionStorage.setItem("mpv-dept-unlocked", JSON.stringify(list)); } catch (e) {}
 }
 function responsableOf(deptHeads, dept) {
+  const exact = (deptHeads || []).find(h => h.departement && normDept(h.departement) === normDept(dept));
+  if (exact) return exact;
   const norm = (x) => (x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   const d = norm(dept).split(" ")[0];
   return (deptHeads || []).find(h => norm(h.departement).includes(d));
@@ -8426,7 +8527,7 @@ function PlansDepartements({ deptPlans, saveDeptPlan, deleteDeptPlan, deptBilans
   const [changingCode, setChangingCode] = useState(false);
   const [natVue, setNatVue] = useState("tableau");
   const now = new Date();
-  const [dept, setDept] = useState(() => { try { return localStorage.getItem("mpv-dp-dept") || ""; } catch (e) { return ""; } });
+  const [dept, setDept] = useState(() => { try { const d = localStorage.getItem("mpv-dp-dept") || ""; return d ? normDept(d) : ""; } catch (e) { return ""; } });
   const [annee, setAnnee] = useState(now.getFullYear());
   const [vue, setVue] = useState("annee");
   const [trim, setTrim] = useState(trimestreOfMonth(now.getMonth()));
@@ -9999,5 +10100,689 @@ function BibleReportForm({ entry, pastors, onSave, onDelete, onClose }) {
         </button>
       )}
     </ModalShell>
+  );
+}
+/* ------------------------------------------------------------------ */
+/*  ÉGLISE : organisation d'après le Document cadre ALWM               */
+/*  Mon rôle · Organigramme · Districts · Qui fait quoi ·             */
+/*  Départements · Rencontres                                         */
+/* ------------------------------------------------------------------ */
+
+const PROFIL_KEY = "mpv-profil";
+function lireProfil() {
+  try { return JSON.parse(localStorage.getItem(PROFIL_KEY) || "null"); } catch (e) { return null; }
+}
+function ecrireProfil(p) {
+  try { if (p) localStorage.setItem(PROFIL_KEY, JSON.stringify(p)); else localStorage.removeItem(PROFIL_KEY); } catch (e) {}
+}
+
+function districtDe(districts, assemblee) {
+  return (districts || []).find(d => (d.assemblees || []).includes(assemblee)) || null;
+}
+function assembleeInfo(regions, nom) {
+  for (const r of regions) {
+    const a = r.assemblees.find(x => x.nom === nom);
+    if (a) return { ...a, region: r.nom };
+  }
+  return null;
+}
+
+// À qui ce rôle rend compte, d'après le document cadre.
+function superieurDe(role, profil, { leadership, districts, regions }) {
+  if (!role) return null;
+  const nomOu = (n, defaut) => (n && n.trim()) ? n : defaut;
+  const dist = profil.district
+    ? (districts || []).find(d => d.id === profil.district)
+    : districtDe(districts, profil.assemblee);
+  const coordDistrict = dist ? nomOu(dist.coordonnateur, `Coordonnateur du district ${dist.nom}`) : "Coordonnateur de district (district à renseigner)";
+  const asm = profil.assemblee ? assembleeInfo(regions, profil.assemblee) : null;
+  const pasteur = asm ? nomOu(asm.pasteurTitulaire, `Pasteur principal de ${asm.nom}`) : "Pasteur principal";
+  const cn = nomOu(leadership.coordonnateur, "Coordonnateur national");
+  const pa = nomOu(leadership.presidentAfrique, "Président Afrique");
+  switch (role.niveau) {
+    case "afrique": return role.id === "pa" ? null : pa;
+    case "national": return role.id === "cn" ? `${pa} (par le Point focal)` : cn;
+    case "district": return role.id === "cd" ? cn : coordDistrict;
+    case "assemblee": return role.id === "pp" ? coordDistrict : role.id === "ppa" ? pasteur : pasteur;
+    default: return pasteur;
+  }
+}
+
+const EGLISE_SOUS = [
+  ["role", "Mon rôle"],
+  ["organigramme", "Organigramme"],
+  ["districts", "Districts"],
+  ["roles", "Qui fait quoi"],
+  ["departements", "Départements"],
+  ["rencontres", "Rencontres"],
+];
+
+function EgliseTab({ sub, setSub, profil, setProfil, go, leadership, regions, districts, saveDistrict, deleteDistrict, pastors, deptHeads, activityReports, financeReports, natUnlocked, onUnlockNat, onLockNat, coordUnlocked, onUnlockCoord, onLockCoord, showToast }) {
+  return (
+    <div>
+      <SectionTitle sub="Organisation d'ALWM d'après le document cadre">Notre Église</SectionTitle>
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 14, paddingBottom: 2 }}>
+        {EGLISE_SOUS.map(([k, l]) => (
+          <button key={k} onClick={() => setSub(k)} style={{
+            flex: "0 0 auto", padding: "7px 12px", borderRadius: 999, fontSize: 12, fontWeight: 700,
+            border: `1.5px solid ${sub === k ? "var(--primary)" : "var(--border)"}`,
+            background: sub === k ? "var(--primary)" : "#fff", color: sub === k ? "#fff" : "var(--ink-soft)"
+          }}>{l}</button>
+        ))}
+      </div>
+      {sub === "role" && (
+        <MonRole profil={profil} setProfil={setProfil} go={go} leadership={leadership} regions={regions} districts={districts}
+          activityReports={activityReports} financeReports={financeReports} showToast={showToast} />
+      )}
+      {sub === "organigramme" && (
+        <Organigramme leadership={leadership} regions={regions} districts={districts} deptHeads={deptHeads} go={go} />
+      )}
+      {sub === "districts" && (
+        <DistrictsView regions={regions} districts={districts} saveDistrict={saveDistrict} deleteDistrict={deleteDistrict}
+          activityReports={activityReports} financeReports={financeReports} leadership={leadership}
+          canEdit={natUnlocked || coordUnlocked} natUnlocked={natUnlocked} onUnlockNat={onUnlockNat} onLockNat={onLockNat}
+          coordUnlocked={coordUnlocked} onUnlockCoord={onUnlockCoord} onLockCoord={onLockCoord}
+          showToast={showToast} />
+      )}
+      {sub === "roles" && <QuiFaitQuoi go={go} />}
+      {sub === "departements" && <DepartementsALWM deptHeads={deptHeads} />}
+      {sub === "rencontres" && <RencontresFormations />}
+    </div>
+  );
+}
+
+/* --- Mon rôle ------------------------------------------------------ */
+
+function MonRole({ profil, setProfil, go, leadership, regions, districts, activityReports, financeReports, showToast }) {
+  const [edition, setEdition] = useState(!profil);
+  const role = profil ? roleById(profil.roleId) : null;
+
+  if (edition || !role) {
+    return <ChoixRole profil={profil} regions={regions} districts={districts}
+      onCancel={profil ? () => setEdition(false) : null}
+      onSave={(p) => { setProfil(p); setEdition(false); remonter(); showToast("Votre rôle est enregistré sur ce téléphone"); }} />;
+  }
+
+  const niveau = NIVEAUX.find(n => n.id === role.niveau);
+  const sup = superieurDe(role, profil, { leadership, districts, regions });
+  const dist = profil.district ? districts.find(d => d.id === profil.district) : districtDe(districts, profil.assemblee);
+  const lundi = mondayOf(new Date().toISOString().slice(0, 10));
+  const aRapportSemaine = ["pp", "ppa", "sa", "tres", "ac", "pdep"].includes(role.id) && profil.assemblee;
+  const actDepose = aRapportSemaine && activityReports.some(r => r.assemblee === profil.assemblee && r.semaine === lundi);
+  const finDepose = aRapportSemaine && financeReports.some(r => r.assemblee === profil.assemblee && r.semaine === lundi);
+
+  return (
+    <div>
+      <div style={{ background: "linear-gradient(135deg, var(--primary), var(--primary-light))", color: "#fff", borderRadius: 16, padding: "16px", marginBottom: 14 }}>
+        <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--accent)", fontWeight: 700 }}>
+          {niveau ? niveau.label : ""}{profil.assemblee ? ` · ${profil.assemblee}` : ""}{dist && role.niveau === "district" ? ` · District ${dist.nom}` : ""}
+        </div>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 21, fontWeight: 700, marginTop: 3 }}>{role.titre}</div>
+        {profil.nom && <div style={{ fontSize: 13, opacity: .9, marginTop: 2 }}>{profil.nom}</div>}
+        <div style={{ fontSize: 12, opacity: .85, marginTop: 8, lineHeight: 1.4 }}>{role.nommePar}</div>
+        {sup && (
+          <div style={{ marginTop: 10, background: "rgba(255,255,255,.14)", borderRadius: 10, padding: "8px 10px", fontSize: 12.5 }}>
+            Je rends compte à : <b>{sup}</b>
+          </div>
+        )}
+        <button onClick={() => setEdition(true)} style={{ marginTop: 10, fontSize: 12, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,.15)", borderRadius: 8, padding: "6px 10px", display: "inline-flex", alignItems: "center", gap: 5 }}>
+          <UserCog size={13} /> Changer de rôle
+        </button>
+      </div>
+
+      {aRapportSemaine && (
+        <div style={{ background: "#fff", borderRadius: 14, border: "1px solid var(--border)", padding: 14, marginBottom: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--primary)", marginBottom: 8 }}>Cette semaine à {profil.assemblee}</div>
+          {[["Rapport d'activités", actDepose, "rapport"], ["Rapport financier", finDepose, "finances"]].map(([label, ok, t]) => (
+            <button key={label} onClick={() => go(t)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 0", borderTop: "1px solid var(--border)", textAlign: "left" }}>
+              {ok ? <CheckCircle2 size={17} color="var(--primary)" /> : <AlertTriangle size={17} color="var(--danger)" />}
+              <span style={{ flex: 1, fontSize: 13 }}>{label}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: ok ? "var(--primary)" : "var(--danger)" }}>{ok ? "Déposé" : "À déposer"}</span>
+              <ChevronRight size={15} color="var(--ink-soft)" />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {role.actions.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--accent-dark)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 7 }}>Mes raccourcis</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+            {role.actions.map(([label, t]) => (
+              <button key={label} onClick={() => go(t)} style={{ background: "#fff", border: "1.5px solid var(--primary)", color: "var(--primary)", borderRadius: 999, padding: "7px 13px", fontSize: 12.5, fontWeight: 700 }}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{ background: "#fff", borderRadius: 14, border: "1px solid var(--border)", padding: 14 }}>
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--accent-dark)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 8 }}>Mes missions selon le document cadre</div>
+        <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 7 }}>
+          {role.missions.map((m, i) => <li key={i} style={{ fontSize: 13, lineHeight: 1.45, color: "var(--ink)" }}>{m}</li>)}
+        </ul>
+      </div>
+      <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 10, lineHeight: 1.4 }}>
+        Votre rôle est enregistré seulement sur ce téléphone. Il sert à vous montrer vos missions et vos raccourcis ; il ne donne aucun accès protégé (les codes restent nécessaires).
+      </div>
+    </div>
+  );
+}
+
+function ChoixRole({ profil, regions, districts, onSave, onCancel }) {
+  const roleInitial = profil ? roleById(profil.roleId) : null;
+  const [niveau, setNiveau] = useState(roleInitial ? roleInitial.niveau : "assemblee");
+  const [roleId, setRoleId] = useState(roleInitial ? roleInitial.id : "");
+  const [assemblee, setAssemblee] = useState(profil?.assemblee || "");
+  const [district, setDistrict] = useState(profil?.district || "");
+  const [nom, setNom] = useState(profil?.nom || "");
+  const roles = ROLES.filter(r => r.niveau === niveau);
+  const besoinAssemblee = niveau === "assemblee" || niveau === "membre";
+  const besoinDistrict = niveau === "district";
+
+  function enregistrer() {
+    if (!roleId) { alert("Choisissez votre rôle."); return; }
+    if (besoinAssemblee && !assemblee) { alert("Choisissez votre assemblée."); return; }
+    onSave({ roleId, niveau, assemblee: besoinAssemblee ? assemblee : "", district: besoinDistrict ? district : "", nom: nom.trim() });
+  }
+
+  return (
+    <div style={{ background: "#fff", borderRadius: 14, border: "1px solid var(--border)", padding: 16 }}>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 17, fontWeight: 700, color: "var(--primary)" }}>Qui êtes-vous dans l'Église ?</div>
+      <div style={{ fontSize: 12.5, color: "var(--ink-soft)", margin: "4px 0 14px", lineHeight: 1.4 }}>
+        Choisissez votre niveau puis votre rôle : l'app vous montrera vos missions, à qui vous rendez compte et les écrans dont vous avez besoin.
+      </div>
+      <Field label="Mon niveau">
+        <ChipPicker options={NIVEAUX.map(n => ({ value: n.id, label: n.label }))} value={niveau} onChange={(v) => { setNiveau(v); setRoleId(""); }} small />
+      </Field>
+      <Field label="Mon rôle">
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {roles.map(r => (
+            <button key={r.id} onClick={() => setRoleId(r.id)} style={{
+              textAlign: "left", padding: "9px 11px", borderRadius: 10, fontSize: 13, fontWeight: 600,
+              border: `1.5px solid ${roleId === r.id ? "var(--primary)" : "var(--border)"}`,
+              background: roleId === r.id ? "var(--accent-soft)" : "#fff", color: "var(--ink)"
+            }}>{r.titre}</button>
+          ))}
+        </div>
+      </Field>
+      {besoinAssemblee && (
+        <Field label="Mon assemblée"><AssembleeSelect regions={regions} value={assemblee} onChange={setAssemblee} /></Field>
+      )}
+      {besoinDistrict && (
+        <Field label="Mon district">
+          {districts.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>Aucun district n'est encore créé (Église → Districts). Vous pourrez le choisir plus tard.</div>
+          ) : (
+            <select style={inputStyle} value={district} onChange={e => setDistrict(e.target.value)}>
+              <option value="">— Sélectionner —</option>
+              {districts.map(d => <option key={d.id} value={d.id}>{d.nom}</option>)}
+            </select>
+          )}
+        </Field>
+      )}
+      <Field label="Mon nom (facultatif)"><input style={inputStyle} value={nom} onChange={e => setNom(e.target.value)} placeholder="Nom et prénom" /></Field>
+      <PrimaryButton onClick={enregistrer} icon={Check} full>Enregistrer mon rôle</PrimaryButton>
+      {onCancel && <button onClick={onCancel} style={{ width: "100%", marginTop: 8, fontSize: 13, color: "var(--ink-soft)", padding: 8 }}>Annuler</button>}
+    </div>
+  );
+}
+
+// Carte affichée sur l'accueil.
+function CarteMonRole({ profil, go }) {
+  const role = profil ? roleById(profil.roleId) : null;
+  if (!role) {
+    return (
+      <button onClick={() => go("eglise:role")} style={{
+        display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left", marginBottom: 16,
+        background: "var(--accent-soft)", border: "1.5px dashed var(--accent-dark)", borderRadius: 14, padding: "12px 14px"
+      }}>
+        <UserCog size={26} color="var(--accent-dark)" />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--primary)" }}>Quel est votre rôle dans l'Église ?</div>
+          <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 2 }}>Pasteur, trésorier, secrétaire, coordonnateur… Choisissez-le pour voir vos missions et vos raccourcis.</div>
+        </div>
+        <ChevronRight size={18} color="var(--accent-dark)" />
+      </button>
+    );
+  }
+  return (
+    <div style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 14, padding: "12px 14px", marginBottom: 16 }}>
+      <button onClick={() => go("eglise:role")} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left" }}>
+        <UserCog size={22} color="var(--primary)" />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--accent-dark)", textTransform: "uppercase", letterSpacing: ".06em" }}>Mon rôle</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--primary)" }}>{role.titre}{profil.assemblee ? ` — ${profil.assemblee}` : ""}</div>
+        </div>
+        <ChevronRight size={17} color="var(--ink-soft)" />
+      </button>
+      {role.actions.length > 0 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+          {role.actions.map(([label, t]) => (
+            <button key={label} onClick={() => go(t)} style={{ background: "var(--primary)", color: "#fff", borderRadius: 999, padding: "6px 12px", fontSize: 12, fontWeight: 700 }}>{label}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* --- Organigramme -------------------------------------------------- */
+
+function OrgNiveau({ titre, sous, children }) {
+  return (
+    <div style={{ background: "#fff", borderRadius: 14, border: "1px solid var(--border)", padding: 14 }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--accent-dark)", textTransform: "uppercase", letterSpacing: ".06em" }}>{sous}</div>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 700, color: "var(--primary)", marginBottom: 8 }}>{titre}</div>
+      {children}
+    </div>
+  );
+}
+function OrgLigne({ label, nom }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "6px 0", borderTop: "1px solid var(--border)", fontSize: 12.5 }}>
+      <span style={{ color: "var(--ink-soft)", flex: 1 }}>{label}</span>
+      <span style={{ fontWeight: 700, color: nom ? "var(--ink)" : "var(--danger)", textAlign: "right", whiteSpace: nom ? "normal" : "nowrap" }}>{nom || "À renseigner"}</span>
+    </div>
+  );
+}
+function OrgFleche() {
+  return <div style={{ display: "flex", justifyContent: "center", padding: "4px 0" }}><ArrowDown size={18} color="var(--accent-dark)" /></div>;
+}
+
+function Organigramme({ leadership, regions, districts, deptHeads, go }) {
+  const toutes = flattenAssemblees(regions);
+  const sansDistrict = toutes.filter(a => !districtDe(districts, a));
+  return (
+    <div>
+      <OrgNiveau sous="Afrique et diaspora" titre="Bureau Afrique">
+        <OrgLigne label="Président Afrique" nom={leadership.presidentAfrique} />
+        <OrgLigne label="Vice-Président Afrique" nom={leadership.vicePresidentAfrique} />
+        <OrgLigne label="Secrétaire du Bureau Afrique" nom={leadership.secretaireBA} />
+        <OrgLigne label="Point focal de la zone" nom={leadership.pointFocal} />
+        <OrgLigne label="Chef du Département Afrique (Mission et Formation)" nom={leadership.responsableDeptAfrique} />
+      </OrgNiveau>
+      <OrgFleche />
+      <OrgNiveau sous="Burkina Faso" titre="Coordination nationale">
+        <OrgLigne label="Coordonnateur national" nom={leadership.coordonnateur} />
+        <OrgLigne label="Secrétaire du BCN" nom={leadership.secretaireBCN} />
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--ink-soft)", margin: "10px 0 2px" }}>Chefs de départements nationaux</div>
+        {DEPARTEMENTS_ALWM.map(d => {
+          const h = responsableOf(deptHeads, d.nom);
+          const nom = d.nom === "Mission et Formation" ? (h?.nom || leadership.responsableMissionFormationPays) : h?.nom;
+          return <OrgLigne key={d.nom} label={`${d.sigle} — ${d.nom}`} nom={nom} />;
+        })}
+        <button onClick={() => go("direction")} style={{ marginTop: 10, fontSize: 12, fontWeight: 700, color: "var(--primary)" }}>Compléter les noms dans Direction →</button>
+      </OrgNiveau>
+      <OrgFleche />
+      <OrgNiveau sous={`${districts.length} district${districts.length > 1 ? "s" : ""}`} titre="Districts">
+        {districts.length === 0 && <div style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>Aucun district créé pour l'instant.</div>}
+        {districts.map(d => (
+          <div key={d.id} style={{ padding: "8px 0", borderTop: "1px solid var(--border)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+              <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--primary)" }}>{d.nom}</span>
+              <span style={{ fontSize: 12, color: d.coordonnateur ? "var(--ink)" : "var(--danger)" }}>{d.coordonnateur || "Coordonnateur à renseigner"}</span>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6 }}>
+              {(d.assemblees || []).map(a => {
+                const info = assembleeInfo(regions, a);
+                return (
+                  <span key={a} style={{ fontSize: 11.5, background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 999, padding: "3px 9px" }}>
+                    {a}{info?.pasteurTitulaire ? ` · ${info.pasteurTitulaire}` : ""}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        <button onClick={() => go("eglise:districts")} style={{ marginTop: 10, fontSize: 12, fontWeight: 700, color: "var(--primary)" }}>Gérer les districts →</button>
+      </OrgNiveau>
+      {sansDistrict.length > 0 && (
+        <div style={{ marginTop: 10, background: "var(--accent-soft)", borderRadius: 12, padding: "10px 12px", fontSize: 12.5, color: "var(--accent-dark)", lineHeight: 1.45 }}>
+          <b>{sansDistrict.length} assemblée{sansDistrict.length > 1 ? "s" : ""} sans district :</b> {sansDistrict.join(", ")}.
+        </div>
+      )}
+      <OrgFleche />
+      <OrgNiveau sous="Chaque assemblée" titre="Comité Directeur">
+        <div style={{ fontSize: 12.5, color: "var(--ink-soft)", lineHeight: 1.5 }}>
+          Pasteur principal · Pasteur principal adjoint · Secrétaire et secrétaire adjoint · Trésorier(e) · Agent comptable · Porte-parole des départements · Conseillers.
+        </div>
+        <button onClick={() => go("repertoire")} style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "var(--primary)" }}>Voir le comité de chaque assemblée →</button>
+      </OrgNiveau>
+    </div>
+  );
+}
+
+/* --- Districts ----------------------------------------------------- */
+
+function DistrictsView({ regions, districts, saveDistrict, deleteDistrict, activityReports, financeReports, leadership, canEdit, natUnlocked, onUnlockNat, onLockNat, coordUnlocked, onUnlockCoord, onLockCoord, showToast }) {
+  const [ouvert, setOuvert] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const toutes = flattenAssemblees(regions);
+  const sansDistrict = toutes.filter(a => !districtDe(districts, a));
+  const d = ouvert ? districts.find(x => x.id === ouvert) : null;
+
+  async function handleSave(item) {
+    const ok = await saveDistrict(item);
+    if (ok) { setEditing(null); showToast("District enregistré"); }
+  }
+  async function handleDelete(item) {
+    const ok = await deleteDistrict(item);
+    if (ok) { setEditing(null); setOuvert(null); showToast("District supprimé"); }
+  }
+
+  if (d) {
+    return (
+      <>
+        <DistrictDetail d={d} regions={regions} activityReports={activityReports} financeReports={financeReports}
+          onBack={() => setOuvert(null)} onEdit={canEdit ? () => setEditing(d) : null} showToast={showToast} />
+        {editing && <DistrictForm entry={editing} districts={districts} toutes={toutes} onSave={handleSave} onDelete={handleDelete} onClose={() => setEditing(null)} />}
+      </>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ fontSize: 12.5, color: "var(--ink-soft)", lineHeight: 1.45, marginBottom: 12 }}>
+        Un district regroupe au moins deux assemblées. Son Coordonnateur, nommé par le Coordonnateur national, examine chaque semaine les rapports des assemblées.
+      </div>
+      {leadership.pinCoordonnateurNational ? (
+        <CoordLockPanel leadership={leadership} unlocked={natUnlocked} onUnlock={onUnlockNat} onLock={onLockNat}
+          pinField="pinCoordonnateurNational" roleLabel="coordonnateur national"
+          description="Tout le monde peut consulter les districts et le suivi des rapports. Seul le coordonnateur national (ou le chef du département) peut créer ou modifier un district." />
+      ) : (
+        <CoordLockPanel leadership={leadership} unlocked={coordUnlocked} onUnlock={onUnlockCoord} onLock={onLockCoord}
+          description="Tout le monde peut consulter les districts et le suivi des rapports. Tant que le coordonnateur national n'a pas de code (onglet Direction), c'est le chef du département qui crée et modifie les districts." />
+      )}
+      {canEdit && (
+        <div style={{ marginBottom: 12 }}>
+          <PrimaryButton onClick={() => setEditing({ nom: "", coordonnateur: "", contact: "", secretaire: "", assemblees: [] })} icon={Plus} full>Nouveau district</PrimaryButton>
+        </div>
+      )}
+      {districts.length === 0 ? (
+        <EmptyState icon={Network} text="Aucun district pour l'instant. Le coordonnateur national peut les créer et y ranger les assemblées." />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {districts.map(x => {
+            const lundi = mondayOf(new Date().toISOString().slice(0, 10));
+            const deposes = (x.assemblees || []).filter(a => activityReports.some(r => r.assemblee === a && r.semaine === lundi)).length;
+            return (
+              <button key={x.id} onClick={() => setOuvert(x.id)} style={{ textAlign: "left", background: "#fff", border: "1px solid var(--border)", borderRadius: 14, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+                <Network size={22} color="var(--primary)" />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14.5, fontWeight: 700, color: "var(--primary)" }}>District {x.nom}</div>
+                  <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 2 }}>
+                    {x.coordonnateur || "Coordonnateur à renseigner"} · {(x.assemblees || []).length} assemblée{(x.assemblees || []).length > 1 ? "s" : ""}
+                  </div>
+                  <div style={{ fontSize: 11.5, marginTop: 4, fontWeight: 700, color: deposes === (x.assemblees || []).length && deposes > 0 ? "var(--primary)" : "var(--accent-dark)" }}>
+                    Rapports de la semaine : {deposes}/{(x.assemblees || []).length}
+                  </div>
+                </div>
+                <ChevronRight size={17} color="var(--ink-soft)" />
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {sansDistrict.length > 0 && (
+        <div style={{ marginTop: 14, background: "var(--accent-soft)", borderRadius: 12, padding: "10px 12px", fontSize: 12.5, color: "var(--accent-dark)", lineHeight: 1.45 }}>
+          <b>Assemblées pas encore rangées dans un district :</b> {sansDistrict.join(", ")}.
+        </div>
+      )}
+      {editing && <DistrictForm entry={editing} districts={districts} toutes={toutes} onSave={handleSave} onDelete={handleDelete} onClose={() => setEditing(null)} />}
+    </div>
+  );
+}
+
+function DistrictDetail({ d, regions, activityReports, financeReports, onBack, onEdit, showToast }) {
+  const [semaine, setSemaine] = useState(mondayOf(new Date().toISOString().slice(0, 10)));
+  const lignes = (d.assemblees || []).map(a => {
+    const info = assembleeInfo(regions, a) || { nom: a };
+    return {
+      nom: a, pasteur: info.pasteurTitulaire || "", contact: info.contact || "",
+      act: activityReports.some(r => r.assemblee === a && r.semaine === semaine),
+      fin: financeReports.some(r => r.assemblee === a && r.semaine === semaine),
+    };
+  });
+  const manquants = lignes.filter(l => !l.act || !l.fin);
+  const texteSemaine = `du ${formatDateLong(semaine)} au ${formatDateLong(sundayOf(semaine))}`;
+
+  function messageRappel(l) {
+    const manque = [!l.act && "le rapport d'activités", !l.fin && "le rapport financier"].filter(Boolean).join(" et ");
+    return `Bonjour ${l.pasteur || "Pasteur"},\nLe district ${d.nom} n'a pas encore reçu ${manque} de l'assemblée ${l.nom} pour la semaine ${texteSemaine}.\nMerci de le déposer dans l'app MPV : ${APP_URL}\nQue Dieu vous bénisse.`;
+  }
+  function partagerPoint() {
+    const l = [`📊 DISTRICT ${d.nom.toUpperCase()} — rapports de la semaine ${texteSemaine}`, ""];
+    lignes.forEach(x => l.push(`• ${x.nom} : activités ${x.act ? "✅" : "❌"} · finances ${x.fin ? "✅" : "❌"}`));
+    l.push("", `${lignes.filter(x => x.act && x.fin).length}/${lignes.length} assemblées à jour.`, `App MPV : ${APP_URL}`);
+    window.open(`https://wa.me/?text=${encodeURIComponent(l.join("\n"))}`, "_blank");
+  }
+
+  return (
+    <div>
+      <button onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13, fontWeight: 700, color: "var(--primary)", marginBottom: 10 }}>
+        <ChevronLeft size={16} /> Tous les districts
+      </button>
+      <div style={{ background: "linear-gradient(135deg, var(--primary), var(--primary-light))", color: "#fff", borderRadius: 16, padding: 16, marginBottom: 14 }}>
+        <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--accent)", fontWeight: 700 }}>Coordination de district</div>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 700, marginTop: 2 }}>District {d.nom}</div>
+        <div style={{ fontSize: 12.5, opacity: .9, marginTop: 6 }}>Coordonnateur : <b>{d.coordonnateur || "à renseigner"}</b>{d.contact ? ` · ${d.contact}` : ""}</div>
+        {d.secretaire && <div style={{ fontSize: 12.5, opacity: .9, marginTop: 2 }}>Secrétaire : {d.secretaire}</div>}
+        {onEdit && (
+          <button onClick={onEdit} style={{ marginTop: 10, fontSize: 12, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,.15)", borderRadius: 8, padding: "6px 10px" }}>Modifier le district</button>
+        )}
+      </div>
+
+      <Field label="Semaine (le lundi)">
+        <input type="date" style={inputStyle} value={semaine} onChange={e => e.target.value && setSemaine(mondayOf(e.target.value))} />
+      </Field>
+      <div style={{ fontSize: 12, color: "var(--ink-soft)", margin: "-4px 0 10px" }}>Semaine {texteSemaine}</div>
+
+      <div style={{ background: "#fff", borderRadius: 14, border: "1px solid var(--border)", overflow: "hidden", marginBottom: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 64px 64px", padding: "8px 12px", background: "var(--bg)", fontSize: 11, fontWeight: 700, color: "var(--ink-soft)", textTransform: "uppercase" }}>
+          <span>Assemblée</span><span style={{ textAlign: "center" }}>Activités</span><span style={{ textAlign: "center" }}>Finances</span>
+        </div>
+        {lignes.map(l => (
+          <div key={l.nom} style={{ padding: "9px 12px", borderTop: "1px solid var(--border)" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 64px 64px", alignItems: "center" }}>
+              <div>
+                <div style={{ fontSize: 13.5, fontWeight: 700 }}>{l.nom}</div>
+                <div style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{l.pasteur || "Pasteur principal à renseigner"}</div>
+              </div>
+              <span style={{ textAlign: "center" }}>{l.act ? <CheckCircle2 size={18} color="var(--primary)" /> : <XCircle size={18} color="var(--danger)" />}</span>
+              <span style={{ textAlign: "center" }}>{l.fin ? <CheckCircle2 size={18} color="var(--primary)" /> : <XCircle size={18} color="var(--danger)" />}</span>
+            </div>
+            {(!l.act || !l.fin) && l.contact && (
+              <a href={whatsappLink(l.contact, messageRappel(l))} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 6, fontSize: 12, fontWeight: 700, color: "#1F7A5C" }}>
+                <Send size={13} /> Rappeler par WhatsApp
+              </a>
+            )}
+          </div>
+        ))}
+        {lignes.length === 0 && <div style={{ padding: 14, fontSize: 12.5, color: "var(--ink-soft)" }}>Aucune assemblée dans ce district.</div>}
+      </div>
+      <PrimaryButton onClick={partagerPoint} icon={Share2} full>Partager le point de la semaine</PrimaryButton>
+      {manquants.length === 0 && lignes.length > 0 && (
+        <div style={{ marginTop: 10, fontSize: 12.5, color: "var(--primary)", fontWeight: 700, textAlign: "center" }}>Toutes les assemblées sont à jour cette semaine.</div>
+      )}
+    </div>
+  );
+}
+
+function DistrictForm({ entry, districts, toutes, onSave, onDelete, onClose }) {
+  const isNew = !entry.id;
+  const [nom, setNom] = useState(entry.nom || "");
+  const [coordonnateur, setCoordonnateur] = useState(entry.coordonnateur || "");
+  const [contact, setContact] = useState(entry.contact || "");
+  const [secretaire, setSecretaire] = useState(entry.secretaire || "");
+  const [assemblees, setAssemblees] = useState(entry.assemblees || []);
+
+  const ailleurs = (a) => districts.find(x => x.id !== entry.id && (x.assemblees || []).includes(a));
+  function toggle(a) { setAssemblees(assemblees.includes(a) ? assemblees.filter(x => x !== a) : [...assemblees, a]); }
+
+  function enregistrer() {
+    if (!nom.trim()) { alert("Donnez un nom au district."); return; }
+    if (assemblees.length < 2 && !confirm("Selon le document cadre, un district regroupe au moins deux assemblées. Enregistrer quand même ?")) return;
+    onSave({ id: entry.id || uid(), nom: nom.trim(), coordonnateur: coordonnateur.trim(), contact: contact.trim(), secretaire: secretaire.trim(), assemblees });
+  }
+
+  return (
+    <ModalShell title={isNew ? "Nouveau district" : `Modifier — ${entry.nom}`} onClose={onClose}>
+      <Field label="Nom du district"><input style={inputStyle} value={nom} onChange={e => setNom(e.target.value)} placeholder="Ex : Ouagadougou, Hauts-Bassins…" /></Field>
+      <Field label="Coordonnateur de district"><input style={inputStyle} value={coordonnateur} onChange={e => setCoordonnateur(e.target.value)} placeholder="Nom et prénom" /></Field>
+      <Field label="Contact du coordonnateur"><input style={inputStyle} value={contact} onChange={e => setContact(e.target.value)} placeholder="Ex : 70 00 00 00" /></Field>
+      <Field label="Secrétaire du Bureau du district"><input style={inputStyle} value={secretaire} onChange={e => setSecretaire(e.target.value)} placeholder="Nom et prénom (facultatif)" /></Field>
+      <Field label={`Assemblées du district (${assemblees.length})`}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {toutes.map(a => {
+            const autre = ailleurs(a);
+            const coche = assemblees.includes(a);
+            return (
+              <button key={a} onClick={() => toggle(a)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 4px", textAlign: "left" }}>
+                {coche ? <CheckSquare size={17} color="var(--primary)" /> : <Square size={17} color="var(--ink-soft)" />}
+                <span style={{ flex: 1, fontSize: 13 }}>{a}</span>
+                {autre && <span style={{ fontSize: 11, color: "var(--accent-dark)" }}>déjà dans {autre.nom}</span>}
+              </button>
+            );
+          })}
+        </div>
+      </Field>
+      <PrimaryButton onClick={enregistrer} icon={Check} full>Enregistrer</PrimaryButton>
+      {!isNew && (
+        <button onClick={() => { if (confirm("Supprimer ce district ? Les assemblées ne sont pas supprimées.")) onDelete(entry); }} style={{
+          width: "100%", marginTop: 10, color: "var(--danger)", fontSize: 13, fontWeight: 600,
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: 8
+        }}>
+          <Trash2 size={14} /> Supprimer ce district
+        </button>
+      )}
+    </ModalShell>
+  );
+}
+
+/* --- Qui fait quoi ------------------------------------------------- */
+
+function QuiFaitQuoi({ go }) {
+  const [ouvert, setOuvert] = useState(null);
+  return (
+    <div>
+      <div style={{ background: "#fff", borderRadius: 14, border: "1px solid var(--border)", padding: 14, marginBottom: 14 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--primary)", marginBottom: 8 }}>Le circuit des rapports</div>
+        {CIRCUIT_RAPPORTS.map((c, i) => (
+          <div key={c.qui} style={{ display: "flex", gap: 10, paddingBottom: i < CIRCUIT_RAPPORTS.length - 1 ? 10 : 0 }}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+              <span style={{ width: 22, height: 22, borderRadius: 999, background: "var(--primary)", color: "#fff", fontSize: 11.5, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</span>
+              {i < CIRCUIT_RAPPORTS.length - 1 && <span style={{ flex: 1, width: 2, background: "var(--border)", marginTop: 3 }} />}
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>{c.qui}</div>
+              <div style={{ fontSize: 12.5, color: "var(--ink-soft)", lineHeight: 1.45 }}>{c.quoi}</div>
+              {c.tab && <button onClick={() => go(c.tab)} style={{ fontSize: 12, fontWeight: 700, color: "var(--primary)", marginTop: 3 }}>Ouvrir dans l'app →</button>}
+            </div>
+          </div>
+        ))}
+      </div>
+      {NIVEAUX.map(n => {
+        const roles = ROLES.filter(r => r.niveau === n.id);
+        return (
+          <div key={n.id} style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--accent-dark)", textTransform: "uppercase", letterSpacing: ".04em" }}>{n.label}</div>
+            <div style={{ fontSize: 12, color: "var(--ink-soft)", margin: "2px 0 8px", lineHeight: 1.4 }}>{n.resume}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {roles.map(r => {
+                const open = ouvert === r.id;
+                return (
+                  <div key={r.id} style={{ background: "#fff", borderRadius: 12, border: "1px solid var(--border)" }}>
+                    <button onClick={() => setOuvert(open ? null : r.id)} style={{ display: "flex", alignItems: "center", width: "100%", padding: "10px 12px", textAlign: "left", gap: 8 }}>
+                      <span style={{ flex: 1, fontSize: 13.5, fontWeight: 700, color: "var(--primary)" }}>{r.titre}</span>
+                      <ChevronRight size={16} color="var(--ink-soft)" style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform .2s" }} />
+                    </button>
+                    {open && (
+                      <div style={{ padding: "0 12px 12px" }}>
+                        <div style={{ fontSize: 12, color: "var(--accent-dark)", fontStyle: "italic", marginBottom: 6 }}>{r.nommePar}</div>
+                        <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 5 }}>
+                          {r.missions.map((m, i) => <li key={i} style={{ fontSize: 12.5, lineHeight: 1.45 }}>{m}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* --- Départements -------------------------------------------------- */
+
+function DepartementsALWM({ deptHeads }) {
+  return (
+    <div>
+      <div style={{ fontSize: 12.5, color: "var(--ink-soft)", lineHeight: 1.45, marginBottom: 12 }}>
+        Chaque département existe à tous les niveaux : <b>Chef de département Afrique</b> → <b>Chef de département national</b> → <b>Délégué de district</b> → <b>Porte-parole dans l'assemblée</b>. Chacun prépare un projet d'activités annuel avec son budget (Coord. → Plans départements).
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {DEPARTEMENTS_ALWM.map(d => {
+          const h = responsableOf(deptHeads, d.nom);
+          return (
+            <div key={d.nom} style={{ background: "#fff", borderRadius: 14, border: "1px solid var(--border)", padding: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: "var(--primary)", borderRadius: 6, padding: "2px 7px" }}>{d.sigle}</span>
+                <span style={{ fontSize: 14.5, fontWeight: 700, color: "var(--primary)", flex: 1 }}>{d.nom}</span>
+              </div>
+              <div style={{ fontSize: 12.5, marginTop: 6, lineHeight: 1.45 }}>{d.role}</div>
+              <ul style={{ margin: "6px 0 0", paddingLeft: 18, display: "flex", flexDirection: "column", gap: 3 }}>
+                {d.missions.map((m, i) => <li key={i} style={{ fontSize: 12, color: "var(--ink-soft)", lineHeight: 1.4 }}>{m}</li>)}
+              </ul>
+              <div style={{ fontSize: 12, marginTop: 8, fontWeight: 700, color: h ? "var(--ink)" : "var(--danger)" }}>
+                Chef national : {h ? `${h.nom}${h.contact ? " · " + h.contact : ""}` : "à désigner (Coord. → Responsables)"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* --- Rencontres et formations -------------------------------------- */
+
+function RencontresFormations() {
+  const [vue, setVue] = useState("rencontres");
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 14, background: "#fff", padding: 4, borderRadius: 11, border: "1px solid var(--border)" }}>
+        <button onClick={() => setVue("rencontres")} style={segButtonStyle(vue === "rencontres")}>Rencontres</button>
+        <button onClick={() => setVue("formations")} style={segButtonStyle(vue === "formations")}>Formations & évangélisation</button>
+      </div>
+      {vue === "rencontres" ? NIVEAUX.filter(n => n.id !== "membre").map(n => (
+        <div key={n.id} style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--accent-dark)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 6 }}>{n.label}</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {RENCONTRES.filter(r => r.niveau === n.id).map(r => (
+              <div key={r.nom} style={{ background: "#fff", borderRadius: 12, border: "1px solid var(--border)", padding: "10px 12px" }}>
+                <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--primary)" }}>{r.nom}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--accent-dark)", marginTop: 3 }}><CalendarClock size={13} /> {r.quand}</div>
+                <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 3 }}>{r.qui}</div>
+                <div style={{ fontSize: 12.5, marginTop: 4, lineHeight: 1.4 }}>{r.but}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {FORMATIONS.map(f => (
+            <div key={f.nom} style={{ background: "#fff", borderRadius: 12, border: "1px solid var(--border)", padding: "11px 13px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14, fontWeight: 700, color: "var(--primary)" }}><GraduationCap size={16} /> {f.nom}</div>
+              <div style={{ fontSize: 12.5, marginTop: 4, lineHeight: 1.45 }}>{f.detail}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
