@@ -12,6 +12,7 @@ import QRCode from "qrcode";
 import { loadKey, loadKeyPays, saveKey, updateKey, loadMembres, saveMembre, deleteMembre, countMembres, migrerAnciensMembres } from "./firebase.js";
 import { APP_NOM, APP_NOM_COURT, PAYS, drapeau, paysCourant, paysChoisi, choisirPays, paysParCode, devise } from "./pays.js";
 import { newVisioLink, canEmbedVisio, VISIO_SERVER } from "./visio.js";
+import { chargerCodes, peutOuvrir, paysProtege, estAfrique, essayerCode, definirCodePays, retirerCodePays, definirCodeAfrique, oublierAfrique, retenirPaysPrecedent, paysPrecedent } from "./acces.js";
 import { RejoindreVisio, BadgeReunion, RappelsVisio } from "./VisioRoom.jsx";
 import {
   NIVEAUX, ROLES, roleById, DEPARTEMENTS_ALWM, DEPARTEMENTS_NOMS, normDept, POSTES_CD, POSTES_AUTRES, normPoste,
@@ -888,7 +889,86 @@ function normDeptCodes(codes) {
 // Au premier lancement, chacun choisit son pays ; ensuite l'app s'ouvre directement.
 export default function App() {
   if (!paysChoisi()) return <EcranChoixPays />;
+  return <PortePays />;
+}
+
+// Porte d'entrée : un pays protégé ne s'ouvre qu'avec son code, ou le code Afrique (Bureau Afrique).
+function PortePays() {
+  const [codes, setCodes] = useState(null);
+  const [ouvert, setOuvert] = useState(false);
+  useEffect(() => {
+    chargerCodes().then(c => { setCodes(c); setOuvert(peutOuvrir(c, PAYS_COURANT.code)); });
+  }, []);
+  if (!codes) {
+    return (
+      <Shell>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 14 }}>
+          <LogoBadge size={64} />
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--primary)" }}>Chargement de l'application…</div>
+        </div>
+      </Shell>
+    );
+  }
+  if (!ouvert) return <EcranCodePays codes={codes} onOuvert={() => setOuvert(true)} />;
   return <AppPays />;
+}
+
+function EcranCodePays({ codes, onOuvert }) {
+  const [saisie, setSaisie] = useState("");
+  const [err, setErr] = useState("");
+  const [enCours, setEnCours] = useState(false);
+  const [autre, setAutre] = useState(false);
+  const prec = paysParCode(paysPrecedent());
+  async function valider() {
+    if (!saisie.trim() || enCours) return;
+    setEnCours(true); setErr("");
+    const r = await essayerCode(codes, PAYS_COURANT.code, saisie);
+    setEnCours(false);
+    if (r) onOuvert(); else setErr("Code incorrect. Demandez le code à votre coordonnateur national.");
+  }
+  return (
+    <Shell>
+      <div style={{ background: "linear-gradient(135deg, var(--primary), var(--primary-light))", padding: "26px 20px 22px", textAlign: "center", flexShrink: 0 }}>
+        <div style={{ display: "flex", justifyContent: "center" }}><LogoBadge size={56} /></div>
+        <div style={{ fontFamily: "var(--font-display)", color: "#fff", fontSize: 21, fontWeight: 700, marginTop: 12 }}>{drapeau(PAYS_COURANT.code)} {PAYS_COURANT.nom}</div>
+        <div style={{ color: "var(--accent)", fontSize: 12, fontWeight: 600, marginTop: 4 }}>{APP_NOM}</div>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "18px 16px 30px" }}>
+        {autre ? (
+          <>
+            <button onClick={() => setAutre(false)} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13, fontWeight: 700, color: "var(--primary)", marginBottom: 10 }}>
+              <ChevronLeft size={16} /> Retour
+            </button>
+            <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 12, lineHeight: 1.45 }}>Les pays avec un cadenas demandent leur code.</div>
+            <ListePays onChoisir={choisirPays} actuel={PAYS_COURANT.code} codes={codes} />
+          </>
+        ) : (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 700, color: "var(--primary)" }}>
+              <Lock size={18} /> Ce pays est protégé
+            </div>
+            <div style={{ fontSize: 13, color: "var(--ink-soft)", margin: "6px 0 16px", lineHeight: 1.5 }}>
+              Entrez le code de {PAYS_COURANT.nom} pour ouvrir ses assemblées, séminaires, rapports et finances. Le code est donné par le coordonnateur national.
+              <br />Membre du Bureau Afrique : entrez le <b>code Afrique</b>, il ouvre tous les pays.
+            </div>
+            <Field label="Code d'accès">
+              <PinField value={saisie} placeholder="Code du pays ou code Afrique" onChange={v => { setSaisie(v); setErr(""); }} onKeyDown={e => e.key === "Enter" && valider()} />
+            </Field>
+            {err && <div style={{ fontSize: 12.5, color: "var(--danger)", fontWeight: 600, margin: "-4px 0 12px" }}>{err}</div>}
+            <PrimaryButton onClick={valider} icon={Unlock} full>{enCours ? "Vérification…" : `Ouvrir ${PAYS_COURANT.nom}`}</PrimaryButton>
+            {prec && prec.code !== PAYS_COURANT.code && (
+              <button onClick={() => choisirPays(prec.code)} style={{ width: "100%", marginTop: 12, padding: "11px 14px", borderRadius: 10, border: "1.5px solid var(--primary)", color: "var(--primary)", fontSize: 14, fontWeight: 600 }}>
+                Revenir à {drapeau(prec.code)} {prec.nom}
+              </button>
+            )}
+            <button onClick={() => setAutre(true)} style={{ width: "100%", marginTop: 10, padding: "10px", fontSize: 13.5, fontWeight: 600, color: "var(--ink-soft)", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+              <Globe size={15} /> Choisir un autre pays
+            </button>
+          </>
+        )}
+      </div>
+    </Shell>
+  );
 }
 
 function AppPays() {
@@ -996,6 +1076,7 @@ function AppPays() {
       setFinanceReports(fr); setActivityReports(ar); setExpenseReports(er);
       setDeptPlans(normDeptListe(dpl)); setDeptBilans(normDeptListe(dbi)); setDeptCodes(normDeptCodes(dco)); setAnnonces(ann || []); setDistricts(Array.isArray(dis) ? dis : []);
       setLoading(false);
+      retenirPaysPrecedent(PAYS_COURANT.code);
       // Ce pays utilise l'app : il apparaît dans la vue Afrique.
       updateKey("pays-actifs", [], (cur) => {
         const liste = Array.isArray(cur) ? cur : [];
@@ -10240,7 +10321,7 @@ function EgliseTab({ sub, setSub, profil, setProfil, go, leadership, regions, di
           coordUnlocked={coordUnlocked} onUnlockCoord={onUnlockCoord} onLockCoord={onLockCoord}
           showToast={showToast} />
       )}
-      {sub === "pays" && <VueAfrique />}
+      {sub === "pays" && <VueAfrique leadership={leadership} natUnlocked={natUnlocked} onUnlockNat={onUnlockNat} showToast={showToast} />}
       {sub === "roles" && <QuiFaitQuoi go={go} />}
       {sub === "departements" && <DepartementsALWM deptHeads={deptHeads} />}
       {sub === "rencontres" && <RencontresFormations />}
@@ -10848,7 +10929,7 @@ function RencontresFormations() {
 /*  PAYS : choix du pays au premier lancement + vue Afrique            */
 /* ------------------------------------------------------------------ */
 
-function ListePays({ onChoisir, actuel }) {
+function ListePays({ onChoisir, actuel, codes }) {
   const [q, setQ] = useState("");
   const norm = (x) => (x || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   const filtre = PAYS.filter(p => !q || norm(p.nom).includes(norm(q)));
@@ -10866,6 +10947,7 @@ function ListePays({ onChoisir, actuel }) {
             }}>
               <span style={{ fontSize: 22 }}>{drapeau(p.code)}</span>
               <span style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>{p.nom}</span>
+              {codes && p.code !== actuel && !peutOuvrir(codes, p.code) && <Lock size={14} color="var(--accent-dark)" aria-label="Code demandé" />}
               {p.code === actuel ? <CheckCircle2 size={17} color="var(--primary)" /> : <ChevronRight size={16} color="var(--ink-soft)" />}
             </button>
           ))}
@@ -10905,10 +10987,136 @@ function EcranChoixPays() {
   );
 }
 
+// Formulaire : nouveau code + confirmation.
+function FormCode({ titre, aide, onValider, onAnnuler, onRetirer }) {
+  const [a, setA] = useState("");
+  const [b, setB] = useState("");
+  const [err, setErr] = useState("");
+  const [enCours, setEnCours] = useState(false);
+  async function ok() {
+    if (a.trim().length < 4) { setErr("Au moins 4 chiffres ou lettres."); return; }
+    if (a.trim() !== b.trim()) { setErr("Les deux codes ne sont pas pareils."); return; }
+    setEnCours(true); await onValider(a.trim()); setEnCours(false);
+  }
+  return (
+    <div style={{ marginTop: 10, background: "var(--accent-soft)", borderRadius: 12, padding: 12 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: "var(--primary)", marginBottom: aide ? 4 : 10 }}>{titre}</div>
+      {aide && <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 10, lineHeight: 1.4 }}>{aide}</div>}
+      <Field label="Nouveau code"><PinField value={a} onChange={v => { setA(v); setErr(""); }} placeholder="Au moins 4 chiffres ou lettres" /></Field>
+      <Field label="Confirmer le code"><PinField value={b} onChange={v => { setB(v); setErr(""); }} placeholder="Retapez le code" onKeyDown={e => e.key === "Enter" && ok()} /></Field>
+      {err && <div style={{ fontSize: 12.5, color: "var(--danger)", fontWeight: 600, margin: "-4px 0 10px" }}>{err}</div>}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <PrimaryButton onClick={ok} icon={Check}>{enCours ? "Enregistrement…" : "Enregistrer"}</PrimaryButton>
+        <button onClick={onAnnuler} style={{ padding: "11px 14px", fontSize: 14, fontWeight: 600, color: "var(--ink-soft)" }}>Annuler</button>
+        {onRetirer && <button onClick={onRetirer} style={{ padding: "11px 6px", fontSize: 13, fontWeight: 600, color: "var(--danger)", marginLeft: "auto" }}>Retirer le code</button>}
+      </div>
+    </div>
+  );
+}
+
+// Codes d'accès : code du pays courant et code Afrique (Église → Pays).
+function CodesAcces({ codes, setCodes, leadership, natUnlocked, onUnlockNat, showToast }) {
+  const [form, setForm] = useState("");
+  const [saisie, setSaisie] = useState("");
+  const [err, setErr] = useState("");
+  const afrique = estAfrique(codes);
+  const protege = paysProtege(codes, PAYS_COURANT.code);
+  const pinCoord = (leadership && leadership.pinCoordonnateurNational) || "";
+  const peutChanger = !protege || afrique || natUnlocked || !pinCoord;
+  const carte = { background: "#fff", borderRadius: 14, border: "1px solid var(--border)", padding: "14px", marginBottom: 12 };
+  const titre = { display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 700, color: "var(--accent-dark)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 6 };
+  const texte = { fontSize: 12.5, color: "var(--ink-soft)", lineHeight: 1.45 };
+  const lien = { fontSize: 12.5, fontWeight: 700, color: "var(--primary)", padding: "6px 0" };
+  const pasEnregistre = () => showToast("Pas enregistré : vérifiez la connexion");
+
+  async function codeAfrique() {
+    if (!saisie.trim()) return;
+    const r = await essayerCode(codes, "", saisie);
+    if (r === "afrique") { setSaisie(""); setErr(""); setCodes({ ...codes }); showToast("Mode Bureau Afrique : tous les pays sont ouverts sur ce téléphone"); }
+    else setErr("Code Afrique incorrect.");
+  }
+  function codeCoord() {
+    if (saisie.trim() && saisie.trim() === pinCoord) { setSaisie(""); setErr(""); onUnlockNat(); }
+    else setErr("Code du coordonnateur national incorrect.");
+  }
+
+  return (
+    <div style={{ marginBottom: 6 }}>
+      <div style={carte}>
+        <div style={titre}><Lock size={13} /> Code de {PAYS_COURANT.nom}</div>
+        <div style={texte}>
+          {protege
+            ? <>Protégé : il faut ce code pour ouvrir {PAYS_COURANT.nom} sur un téléphone. Les autres pays voient {PAYS_COURANT.nom} dans la liste mais ne peuvent pas l'ouvrir.</>
+            : <><b style={{ color: "var(--danger)" }}>Pas encore de code :</b> tout le monde peut ouvrir {PAYS_COURANT.nom}, même depuis un autre pays. Créez un code et donnez-le seulement aux pasteurs et responsables de {PAYS_COURANT.nom}.</>}
+        </div>
+        {form === "pays" ? (
+          <FormCode
+            titre={protege ? "Changer le code du pays" : "Créer le code du pays"}
+            aide="Après le changement, chaque téléphone devra taper le nouveau code une fois."
+            onAnnuler={() => setForm("")}
+            onRetirer={protege && afrique ? async () => { const c = await retirerCodePays(PAYS_COURANT.code); if (c) { setCodes(c); setForm(""); showToast("Code retiré : le pays est ouvert à tous"); } else pasEnregistre(); } : null}
+            onValider={async (v) => { const c = await definirCodePays(PAYS_COURANT.code, v); if (c) { setCodes(c); setForm(""); showToast(`Code enregistré. Communiquez-le aux membres de ${PAYS_COURANT.nom}.`); } else pasEnregistre(); }}
+          />
+        ) : peutChanger ? (
+          <button onClick={() => { setForm("pays"); setErr(""); }} style={lien}>{protege ? "Changer le code du pays →" : "Créer le code du pays →"}</button>
+        ) : (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ ...texte, marginBottom: 6 }}>Pour changer ce code : code du coordonnateur national (ou code Afrique ci-dessous).</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ flex: 1 }}><PinField value={form === "coord" ? saisie : ""} placeholder="Code du coordonnateur national" onChange={v => { setForm("coord"); setSaisie(v); setErr(""); }} onKeyDown={e => e.key === "Enter" && codeCoord()} /></div>
+              <PrimaryButton onClick={codeCoord} icon={Unlock}>OK</PrimaryButton>
+            </div>
+            {form === "coord" && err && <div style={{ fontSize: 12.5, color: "var(--danger)", fontWeight: 600, marginTop: 6 }}>{err}</div>}
+          </div>
+        )}
+      </div>
+
+      <div style={{ ...carte, borderColor: afrique ? "var(--primary)" : "var(--border)" }}>
+        <div style={titre}><Globe size={13} /> Code Afrique · Bureau Afrique</div>
+        {!codes.afrique ? (
+          <>
+            <div style={texte}>Le code Afrique ouvre <b>tous les pays</b>. Il n'existe pas encore : le Bureau Afrique le crée une seule fois ici, puis le garde secret.</div>
+            {form === "afrique" ? (
+              <FormCode titre="Créer le code Afrique" aide="Ce téléphone passera en mode Bureau Afrique." onAnnuler={() => setForm("")}
+                onValider={async (v) => { const c = await definirCodeAfrique(v); if (c) { setCodes(c); setForm(""); showToast("Code Afrique créé : ce téléphone ouvre tous les pays"); } else pasEnregistre(); }} />
+            ) : <button onClick={() => setForm("afrique")} style={lien}>Créer le code Afrique →</button>}
+          </>
+        ) : afrique ? (
+          <>
+            <div style={{ ...texte, color: "var(--primary)" }}><b>✓ Mode Bureau Afrique</b> sur ce téléphone : tous les pays s'ouvrent sans leur code. Dans la liste ci-dessous, vous pouvez donner ou changer le code de chaque pays.</div>
+            {form === "afrique" ? (
+              <FormCode titre="Changer le code Afrique" aide="Les autres téléphones du Bureau Afrique devront taper le nouveau code." onAnnuler={() => setForm("")}
+                onValider={async (v) => { const c = await definirCodeAfrique(v); if (c) { setCodes(c); setForm(""); showToast("Code Afrique changé"); } else pasEnregistre(); }} />
+            ) : (
+              <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                <button onClick={() => setForm("afrique")} style={lien}>Changer le code Afrique</button>
+                <button onClick={() => { oublierAfrique(); setCodes({ ...codes }); showToast("Mode Bureau Afrique quitté sur ce téléphone"); }} style={{ ...lien, color: "var(--ink-soft)" }}>Quitter le mode Bureau Afrique</button>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div style={{ ...texte, marginBottom: 8 }}>Membre du Bureau Afrique ? Entrez le code Afrique pour ouvrir tous les pays sur ce téléphone.</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ flex: 1 }}><PinField value={form === "entrer" ? saisie : ""} placeholder="Code Afrique" onChange={v => { setForm("entrer"); setSaisie(v); setErr(""); }} onKeyDown={e => e.key === "Enter" && codeAfrique()} /></div>
+              <PrimaryButton onClick={codeAfrique} icon={Unlock}>OK</PrimaryButton>
+            </div>
+            {form === "entrer" && err && <div style={{ fontSize: 12.5, color: "var(--danger)", fontWeight: 600, marginTop: 6 }}>{err}</div>}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Vue Afrique : tous les pays qui utilisent l'app.
-function VueAfrique() {
+function VueAfrique({ leadership, natUnlocked, onUnlockNat, showToast }) {
   const [lignes, setLignes] = useState(null);
   const [changer, setChanger] = useState(false);
+  const [codes, setCodes] = useState(null);
+  const [codePour, setCodePour] = useState("");
+  useEffect(() => { chargerCodes().then(setCodes); }, []);
+  const afrique = !!codes && estAfrique(codes);
   const lundi = mondayOf(new Date().toISOString().slice(0, 10));
 
   useEffect(() => {
@@ -10942,7 +11150,7 @@ function VueAfrique() {
           <ChevronLeft size={16} /> Retour
         </button>
         <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 12, lineHeight: 1.45 }}>L'app va redémarrer sur les données du pays choisi.</div>
-        <ListePays onChoisir={choisirPays} actuel={PAYS_COURANT.code} />
+        <ListePays onChoisir={choisirPays} actuel={PAYS_COURANT.code} codes={codes} />
       </div>
     );
   }
@@ -10957,6 +11165,7 @@ function VueAfrique() {
           <Globe size={13} /> Changer de pays
         </button>
       </div>
+      {codes && <CodesAcces codes={codes} setCodes={setCodes} leadership={leadership} natUnlocked={natUnlocked} onUnlockNat={onUnlockNat} showToast={showToast} />}
       <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--accent-dark)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 4 }}>Pays qui utilisent l'app</div>
       <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 10, lineHeight: 1.4 }}>
         Vue du Bureau Afrique et des points focaux : coordonnateur, assemblées et rapports d'activités de la semaine dans chaque pays.
@@ -10985,8 +11194,29 @@ function VueAfrique() {
                   <span><b>{l.districts}</b> district{l.districts > 1 ? "s" : ""}</span>
                   <span>Rapports : <b>{l.act}/{l.assemblees}</b> activités · <b>{l.fin}/{l.assemblees}</b> finances</span>
                 </div>
-                {l.pays.code !== PAYS_COURANT.code && (
-                  <button onClick={() => choisirPays(l.pays.code)} style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "var(--primary)" }}>Ouvrir ce pays →</button>
+                {(l.pays.code !== PAYS_COURANT.code || afrique) && (
+                  <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 14, marginTop: 8 }}>
+                    {l.pays.code !== PAYS_COURANT.code && (codes && !peutOuvrir(codes, l.pays.code) ? (
+                      <button onClick={() => choisirPays(l.pays.code)} style={{ fontSize: 12, fontWeight: 700, color: "var(--accent-dark)", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <Lock size={12} /> Ouvrir (code du pays demandé)
+                      </button>
+                    ) : (
+                      <button onClick={() => choisirPays(l.pays.code)} style={{ fontSize: 12, fontWeight: 700, color: "var(--primary)" }}>Ouvrir ce pays →</button>
+                    ))}
+                    {afrique && (
+                      <button onClick={() => setCodePour(codePour === l.pays.code ? "" : l.pays.code)} style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <ShieldCheck size={12} /> {paysProtege(codes, l.pays.code) ? "Code défini · changer" : "Aucun code · en créer un"}
+                      </button>
+                    )}
+                  </div>
+                )}
+                {afrique && codePour === l.pays.code && (
+                  <FormCode
+                    titre={`Code de ${l.pays.nom}`}
+                    onAnnuler={() => setCodePour("")}
+                    onRetirer={paysProtege(codes, l.pays.code) ? async () => { const c = await retirerCodePays(l.pays.code); if (c) { setCodes(c); setCodePour(""); showToast(`${l.pays.nom} : code retiré, le pays est ouvert à tous`); } else showToast("Pas enregistré : vérifiez la connexion"); } : null}
+                    onValider={async (v) => { const c = await definirCodePays(l.pays.code, v); if (c) { setCodes(c); setCodePour(""); showToast(`Code de ${l.pays.nom} enregistré. Communiquez-le à son coordonnateur national.`); } else showToast("Pas enregistré : vérifiez la connexion"); }}
+                  />
                 )}
               </div>
             ))}

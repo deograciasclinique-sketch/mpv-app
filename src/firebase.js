@@ -31,7 +31,7 @@ export const db = getFirestore(app);
 // Le Burkina Faso garde ses documents d'origine, sans préfixe.
 // Quelques clés sont communes à toute l'Afrique (Bureau Afrique).
 // ------------------------------------------------------------------
-const CLES_AFRIQUE = new Set(["leadership-afrique", "missionaries-africa", "pays-actifs"]);
+const CLES_AFRIQUE = new Set(["leadership-afrique", "missionaries-africa", "pays-actifs", "codes-acces"]);
 function cle(key, code) {
   return CLES_AFRIQUE.has(key) ? key : prefixePays(code) + key;
 }
