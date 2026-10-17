@@ -31,7 +31,7 @@ export const db = getFirestore(app);
 // Le Burkina Faso garde ses documents d'origine, sans préfixe.
 // Quelques clés sont communes à toute l'Afrique (Bureau Afrique).
 // ------------------------------------------------------------------
-const CLES_AFRIQUE = new Set(["leadership-afrique", "missionaries-africa", "pays-actifs", "codes-acces"]);
+const CLES_AFRIQUE = new Set(["leadership-afrique", "missionaries-africa", "pays-actifs", "codes-acces", "populations"]);
 function cle(key, code) {
   return CLES_AFRIQUE.has(key) ? key : prefixePays(code) + key;
 }
@@ -154,6 +154,19 @@ export async function countMembres(filtres = {}) {
     return snap.data().count;
   } catch (e) {
     console.error("Erreur de comptage des membres:", e);
+    return null;
+  }
+}
+
+// Nombre de membres d'un AUTRE pays (statistiques du Bureau Afrique), sans changer de pays.
+export async function countMembresPays(code, filtres = {}) {
+  try {
+    const col = collection(db, "mpv-data", cle("assembly-members", code), "items");
+    const conds = Object.entries(filtres).map(([k, v]) => where(k, "==", v));
+    const snap = await getCountFromServer(query(col, ...conds));
+    return snap.data().count;
+  } catch (e) {
+    console.error("Erreur de comptage des membres:", code, e);
     return null;
   }
 }

@@ -9,7 +9,8 @@ import {
   Network, UserCog, ArrowDown, GraduationCap, CalendarClock, Church
 } from "lucide-react";
 import QRCode from "qrcode";
-import { loadKey, loadKeyPays, saveKey, updateKey, loadMembres, saveMembre, deleteMembre, countMembres, migrerAnciensMembres } from "./firebase.js";
+import { loadKey, loadKeyPays, saveKey, updateKey, loadMembres, saveMembre, deleteMembre, countMembres, countMembresPays, migrerAnciensMembres } from "./firebase.js";
+import { POPULATION_2025 } from "./populations.js";
 import { APP_NOM, APP_NOM_COURT, PAYS, drapeau, paysCourant, paysChoisi, choisirPays, paysParCode, devise } from "./pays.js";
 import { newVisioLink, canEmbedVisio, VISIO_SERVER } from "./visio.js";
 import { chargerCodes, peutOuvrir, paysProtege, estAfrique, essayerCode, definirCodePays, retirerCodePays, definirCodeAfrique, oublierAfrique, retenirPaysPrecedent, paysPrecedent,
@@ -1847,6 +1848,7 @@ function Accueil({ seminars, coordSeminars, pastors, regions, setTab, annonces, 
     { id: "finances", label: "Finances", icon: Wallet },
     { id: "messagerie", label: "Réunions", icon: Megaphone },
     { id: "aide", label: "Partager & aide", icon: Share2 },
+    { id: "eglise:stats", label: "Stats Afrique", icon: BarChart3 },
   ];
 
   return (
@@ -1864,6 +1866,8 @@ function Accueil({ seminars, coordSeminars, pastors, regions, setTab, annonces, 
           Travaillez pour votre salut avec crainte et tremblement — la grâce est trompeuse.
         </div>
       </div>
+
+      <CarteStatsAccueil go={setTab} />
 
       <div style={{ display: "flex", gap: 6, marginTop: 14, marginBottom: 18, overflowX: "auto", paddingBottom: 2 }}>
         {raccourcis.map(r => {
@@ -10320,6 +10324,7 @@ function superieurDe(role, profil, { leadership, districts, regions }) {
 }
 
 const EGLISE_SOUS = [
+  ["stats", "📊 Statistiques"],
   ["role", "Mon rôle"],
   ["pays", "Pays"],
   ["zones", "Zones"],
@@ -10358,6 +10363,7 @@ function EgliseTab({ sub, setSub, profil, setProfil, go, leadership, regions, di
           showToast={showToast} />
       )}
       {sub === "pays" && <VueAfrique leadership={leadership} natUnlocked={natUnlocked} onUnlockNat={onUnlockNat} showToast={showToast} />}
+      {sub === "stats" && <StatsAfrique showToast={showToast} go={go} />}
       {sub === "zones" && <VueZones leadership={leadership} natUnlocked={natUnlocked} onUnlockNat={onUnlockNat} showToast={showToast} />}
       {sub === "roles" && <QuiFaitQuoi go={go} />}
       {sub === "departements" && <DepartementsALWM deptHeads={deptHeads} />}
@@ -11146,6 +11152,278 @@ function CodesAcces({ codes, setCodes, leadership, natUnlocked, onUnlockNat, sho
   );
 }
 
+
+/* ================= STATISTIQUES AFRIQUE & DIASPORA (Président Afrique et son Bureau) =================
+   Un seul écran, ouvert avec le code Afrique : population, membres, sauvés, séminaires,
+   pasteurs, missionnaires, prédicateurs et aspirants de tous les pays qui utilisent l'app. */
+const nf = (n) => (n == null ? "—" : Math.round(n).toLocaleString("fr-FR").replace(/[  ]/g, " "));
+const habitants = (m) => (m == null ? "—" : m >= 1000 ? `${(m / 1000).toFixed(2).replace(".", ",")} milliard${m >= 2000 ? "s" : ""}` : m >= 1 ? `${m.toFixed(1).replace(".", ",")} millions` : `${Math.round(m * 1000)} 000`);
+function lundiDe(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; }
+const isoJour = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+async function chargerStatsPays(code) {
+  const [reg, pasteurs, sems, coord, rapports, membres] = await Promise.all([
+    loadKeyPays(code, "regions-assemblies", code === "BF" ? REGIONS_DEFAULT : []),
+    loadKeyPays(code, "pastors-directory", code === "BF" ? PASTORS_DEFAULT : []),
+    loadKeyPays(code, "seminars-list", []),
+    loadKeyPays(code, "coord-seminars", []),
+    loadKeyPays(code, "seminar-reports", []),
+    countMembresPays(code),
+  ]);
+  const arr = (x) => (Array.isArray(x) ? x : []);
+  const fn = (p) => String((p && p.fonction) || "");
+  const P = arr(pasteurs);
+  const r = arr(rapports);
+  const somme = (k) => r.reduce((t, x) => t + (Number(x && x[k]) || 0), 0);
+  const dates = [...arr(sems), ...arr(coord)].map(x => String((x && x.date) || "").slice(0, 10)).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d));
+  return {
+    code, assemblees: flattenAssemblees(arr(reg)).length, membres,
+    pasteurs: P.filter(p => /pasteur/i.test(fn(p))).length,
+    predicateurs: P.filter(p => fn(p) === "Prédicateur").length,
+    aspirants: P.filter(p => /aspirant/i.test(fn(p))).length,
+    missionnaires: P.filter(p => /missionnaire/i.test(fn(p))).length,
+    participants: somme("participants"), sauves: somme("declaresSauves"), ajouts: somme("ajoutsPhysiques"),
+    dates,
+  };
+}
+
+function CarteStatsAccueil({ go }) {
+  const [afrique, setAfrique] = useState(false);
+  useEffect(() => { chargerCodes().then(c => setAfrique(estAfrique(c))).catch(() => {}); }, []);
+  if (!afrique) return null;
+  return (
+    <button onClick={() => go("eglise:stats")} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left", marginTop: 14, padding: "14px 16px", borderRadius: 16, border: 0, color: "#fff", background: "linear-gradient(135deg, var(--primary), var(--primary-light))", boxShadow: "0 8px 20px rgba(30,42,74,.25)" }}>
+      <span style={{ width: 44, height: 44, borderRadius: 12, background: "rgba(255,255,255,.15)", display: "grid", placeItems: "center", flex: "none" }}><BarChart3 size={22} /></span>
+      <span style={{ flex: 1 }}><span style={{ display: "block", fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 700 }}>Statistiques Afrique & diaspora</span><span style={{ fontSize: 12, color: "var(--accent)" }}>Bureau Afrique · tous les pays en un clic</span></span>
+      <ChevronRight size={18} />
+    </button>
+  );
+}
+
+function StatsAfrique({ showToast }) {
+  const [codes, setCodes] = useState(null);
+  const [saisie, setSaisie] = useState("");
+  const [err, setErr] = useState("");
+  const [data, setData] = useState(null);
+  const [pops, setPops] = useState({});
+  const [tri, setTri] = useState("membres");
+  const [tous, setTous] = useState(false);
+  const [edit, setEdit] = useState("");
+  const [val, setVal] = useState("");
+  const [maj, setMaj] = useState(0);
+  useEffect(() => { chargerCodes().then(setCodes); }, []);
+  const afrique = !!codes && estAfrique(codes);
+
+  useEffect(() => {
+    if (!afrique) return;
+    let vivant = true;
+    setData(null);
+    (async () => {
+      const [actifs, popsServ, miss] = await Promise.all([loadKey("pays-actifs", []), loadKey("populations", {}), loadKey("missionaries-africa", [])]);
+      const liste = [...new Set([PAYS_COURANT.code, ...(Array.isArray(actifs) ? actifs : [])])].filter(c => paysParCode(c));
+      const lignes = await Promise.all(liste.map(chargerStatsPays));
+      if (vivant) { setPops(popsServ && typeof popsServ === "object" ? popsServ : {}); setData({ lignes, missAfrique: Array.isArray(miss) ? miss.length : 0, at: new Date() }); }
+    })();
+    return () => { vivant = false; };
+  }, [afrique, maj]);
+
+  async function entrer() {
+    const r = await essayerCode(codes, "", saisie);
+    if (r === "afrique") { setSaisie(""); setErr(""); setCodes({ ...codes }); }
+    else setErr("Code Afrique incorrect.");
+  }
+  if (!codes) return <div style={{ fontSize: 13, color: "var(--ink-soft)", padding: 16, textAlign: "center" }}>Chargement…</div>;
+  if (!afrique) {
+    return (
+      <div style={{ background: "#fff", borderRadius: 16, border: "1px solid var(--border)", padding: 18 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 700, color: "var(--primary)" }}><Lock size={18} /> Statistiques Afrique & diaspora</div>
+        <div style={{ fontSize: 13, color: "var(--ink-soft)", margin: "8px 0 14px", lineHeight: 1.5 }}>Réservé au <b>Président Afrique et à son Bureau</b> : population, membres, sauvés, séminaires, pasteurs, missionnaires et prédicateurs de tous les pays. Entrez le code Afrique.</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ flex: 1 }}><PinField value={saisie} placeholder="Code Afrique" onChange={v => { setSaisie(v); setErr(""); }} onKeyDown={e => e.key === "Enter" && entrer()} /></div>
+          <PrimaryButton onClick={entrer} icon={Unlock}>Ouvrir</PrimaryButton>
+        </div>
+        {err && <div style={{ fontSize: 12.5, color: "var(--danger)", fontWeight: 600, marginTop: 8 }}>{err}</div>}
+      </div>
+    );
+  }
+
+  const popDe = (c) => (pops[c] != null && pops[c] !== "" ? Number(pops[c]) : (POPULATION_2025[c] ?? null));
+  const popAfrique = PAYS.filter(p => p.zone === "afrique").reduce((t, p) => t + (popDe(p.code) || 0), 0);
+  const popDiaspora = PAYS.filter(p => p.zone === "diaspora").reduce((t, p) => t + (popDe(p.code) || 0), 0);
+  if (!data) return <div style={{ fontSize: 13, color: "var(--ink-soft)", padding: 24, textAlign: "center" }}>Rassemblement des chiffres de tous les pays…</div>;
+  const L = data.lignes;
+  // Cible : toute l'Afrique + les pays de la diaspora où l'Église est déjà présente.
+  const diasporaActifs = L.filter(l => paysParCode(l.code).zone === "diaspora");
+  const popDiasporaActive = diasporaActifs.reduce((t, l) => t + (popDe(l.code) || 0), 0);
+  const popTotal = popAfrique + popDiasporaActive;
+  const T = (k) => L.reduce((t, l) => t + (Number(l[k]) || 0), 0);
+  const membres = T("membres"), participants = T("participants");
+  const touches = membres + participants;
+  const restant = Math.max(0, popTotal * 1e6 - touches);
+  const pct = (a, b) => (b > 0 ? (a / b) * 100 : 0);
+  const fmtPct = (x) => (x === 0 ? "0 %" : x < 0.01 ? "< 0,01 %" : `${x.toFixed(x < 1 ? 2 : 1).replace(".", ",")} %`);
+
+  // séminaires : aujourd'hui, cette semaine, ce mois, moyenne par semaine (12 dernières semaines)
+  const auj = isoJour(new Date());
+  const l0 = lundiDe(new Date()); const dimanche = new Date(l0); dimanche.setDate(l0.getDate() + 6);
+  const debSem = isoJour(l0), finSem = isoJour(dimanche);
+  const mois = auj.slice(0, 7);
+  const debut12 = new Date(l0); debut12.setDate(l0.getDate() - 7 * 12); const d12 = isoJour(debut12);
+  const toutes = L.flatMap(l => l.dates);
+  const semJour = toutes.filter(d => d === auj).length;
+  const semSemaine = toutes.filter(d => d >= debSem && d <= finSem).length;
+  const semMois = toutes.filter(d => d.startsWith(mois)).length;
+  const sem12 = toutes.filter(d => d >= d12 && d < debSem).length;
+  const sem7j = toutes.filter(d => d >= debSem && d <= finSem).length;
+
+  const carte = { background: "#fff", borderRadius: 14, border: "1px solid var(--border)", padding: 14, marginBottom: 12 };
+  const titre = { fontSize: 11.5, fontWeight: 700, color: "var(--accent-dark)", textTransform: "uppercase", letterSpacing: ".04em", margin: "16px 0 8px" };
+  const Tuile = ({ label, value, tone, sub }) => (
+    <div style={{ background: "#fff", borderRadius: 14, border: "1px solid var(--border)", padding: "11px 12px" }}>
+      <div style={{ fontSize: 11, color: "var(--ink-soft)", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".03em" }}>{label}</div>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 21, fontWeight: 700, color: tone || "var(--primary)", marginTop: 2 }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: "var(--ink-soft)", marginTop: 1 }}>{sub}</div>}
+    </div>
+  );
+  const grille = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 };
+
+  const triees = [...L].sort((a, b) => tri === "population" ? (popDe(b.code) || 0) - (popDe(a.code) || 0) : (Number(b[tri]) || 0) - (Number(a[tri]) || 0));
+  const maxTri = Math.max(1, ...triees.map(l => tri === "population" ? (popDe(l.code) || 0) : (Number(l[tri]) || 0)));
+
+  async function enregistrerPop(code) {
+    const v = String(val).replace(",", ".").trim();
+    const n = v === "" ? null : Number(v);
+    if (v !== "" && !(n > 0 && n < 5000)) { showToast("Indiquez la population en millions, ex. 24,1"); return; }
+    const res = await updateKey("populations", {}, cur => { const c = { ...(cur || {}) }; if (n == null) delete c[code]; else c[code] = n; return c; });
+    if (res) { setPops(res); setEdit(""); showToast(n == null ? "Chiffre ONU rétabli" : "Population corrigée"); } else showToast("Pas enregistré : vérifiez la connexion");
+  }
+  function partager() {
+    const l = [
+      `📊 *Life Word Mission — Statistiques Afrique & diaspora* (${new Date().toLocaleDateString("fr-FR")})`, "",
+      `🌍 Population à atteindre : ${habitants(popTotal)} (Afrique ${habitants(popAfrique)}${diasporaActifs.length ? `, diaspora active ${habitants(popDiasporaActive)}` : ""})`,
+      `🙌 Personnes touchées : ${nf(touches)} (membres ${nf(membres)} + participants aux séminaires ${nf(participants)})`,
+      `🕊️ Reste à évangéliser : ${nf(restant)}`, "",
+      `⛪ ${L.length} pays · ${nf(T("assemblees"))} assemblées · ${nf(membres)} membres`,
+      `✝️ Déclarés sauvés : ${nf(T("sauves"))} · Ajoutés à l'église : ${nf(T("ajouts"))}`,
+      `👔 Pasteurs ${nf(T("pasteurs"))} · Missionnaires ${nf(T("missionnaires") + data.missAfrique)} · Prédicateurs ${nf(T("predicateurs"))} · Aspirants ${nf(T("aspirants"))}`,
+      `📅 Séminaires : aujourd'hui ${semJour} · cette semaine ${semSemaine} · ce mois ${semMois} · moyenne ${(sem12 / 12).toFixed(1).replace(".", ",")}/semaine`,
+      "", ...triees.map(x => `${drapeau(x.code)} ${paysParCode(x.code).nom} : ${nf(x.membres)} membres · ${nf(x.sauves)} sauvés · ${x.dates.filter(d => d >= debSem && d <= finSem).length} séminaire(s) cette semaine`),
+    ];
+    window.open(`https://wa.me/?text=${encodeURIComponent(l.join("\n"))}`, "_blank");
+  }
+
+  return (
+    <div>
+      <div style={{ background: "linear-gradient(135deg, var(--primary), var(--primary-light))", color: "#fff", borderRadius: 18, padding: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ flex: 1, fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--accent)", fontWeight: 700 }}>Afrique & diaspora · Bureau Afrique</div>
+          <button onClick={() => setMaj(m => m + 1)} aria-label="Actualiser" style={{ color: "#fff", background: "rgba(255,255,255,.15)", borderRadius: 8, padding: 6, display: "flex" }}><RefreshCw size={14} /></button>
+        </div>
+        <div style={{ fontSize: 12.5, opacity: .85, marginTop: 8 }}>Population à atteindre (estimation ONU 2025)</div>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 700, lineHeight: 1.15 }}>{habitants(popTotal)}</div>
+        <div style={{ fontSize: 12, opacity: .85 }}>Afrique (54 pays) {habitants(popAfrique)}{diasporaActifs.length ? ` · diaspora où l'Église est présente (${diasporaActifs.length} pays) ${habitants(popDiasporaActive)}` : " · aucun pays de la diaspora actif pour l'instant"}</div>
+        <div style={{ fontSize: 11, opacity: .7 }}>Les 16 pays de la diaspora réunis : {habitants(popDiaspora)} (population totale de ces pays)</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
+          <div><div style={{ fontSize: 11, opacity: .8 }}>Personnes touchées</div><div style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 700, color: "var(--accent)" }}>{nf(touches)}</div><div style={{ fontSize: 10.5, opacity: .75 }}>membres + participants</div></div>
+          <div><div style={{ fontSize: 11, opacity: .8 }}>Reste à évangéliser</div><div style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 700 }}>{nf(restant)}</div><div style={{ fontSize: 10.5, opacity: .75 }}>{fmtPct(100 - pct(touches, popTotal * 1e6))} de la population</div></div>
+        </div>
+        <div style={{ height: 8, borderRadius: 99, background: "rgba(255,255,255,.18)", marginTop: 12, overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${Math.max(1.5, Math.min(100, pct(touches, popTotal * 1e6)))}%`, background: "var(--accent)", borderRadius: 99 }} />
+        </div>
+        <div style={{ fontSize: 11, opacity: .8, marginTop: 4 }}>Déjà touchés : {fmtPct(pct(touches, popTotal * 1e6))} · la moisson est grande</div>
+      </div>
+
+      <div style={titre}>L'Église</div>
+      <div style={grille}>
+        <Tuile label="Pays actifs" value={nf(L.length)} sub={`sur ${PAYS.length} pays`} />
+        <Tuile label="Assemblées" value={nf(T("assemblees"))} />
+        <Tuile label="Membres" value={nf(membres)} tone="#1F7A5C" sub="enregistrés dans l'app" />
+        <Tuile label="Déclarés sauvés" value={nf(T("sauves"))} tone="#B5462B" sub="rapports des séminaires" />
+        <Tuile label="Ajoutés à l'église" value={nf(T("ajouts"))} tone="#1F7A5C" sub="ajouts physiques" />
+        <Tuile label="Ont assisté aux séminaires" value={nf(participants)} tone="var(--accent-dark)" />
+      </div>
+
+      <div style={titre}>Les ouvriers</div>
+      <div style={grille}>
+        <Tuile label="Pasteurs" value={nf(T("pasteurs"))} />
+        <Tuile label="Missionnaires" value={nf(T("missionnaires") + data.missAfrique)} sub={data.missAfrique ? `dont ${data.missAfrique} missionnaires Afrique` : null} />
+        <Tuile label="Prédicateurs" value={nf(T("predicateurs"))} />
+        <Tuile label="Aspirants prédicateurs" value={nf(T("aspirants"))} />
+      </div>
+
+      <div style={titre}>Les séminaires</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+        {[["Aujourd'hui", semJour], ["Cette semaine", sem7j], ["Ce mois", semMois], ["Moy. / sem.", (sem12 / 12).toFixed(1).replace(".", ",")]].map(([l, v]) => (
+          <div key={l} style={{ background: "#fff", borderRadius: 12, border: "1px solid var(--border)", padding: "10px 6px", textAlign: "center" }}>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 700, color: "var(--primary)" }}>{v}</div>
+            <div style={{ fontSize: 10.5, color: "var(--ink-soft)", fontWeight: 700 }}>{l}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: 11, color: "var(--ink-soft)", marginTop: 6 }}>Moyenne sur les 12 dernières semaines · {nf(toutes.length)} séminaires programmés au total.</div>
+
+      <div style={{ ...titre, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span>Pays par pays</span>
+        <select value={tri} onChange={e => setTri(e.target.value)} style={{ fontSize: 12, fontWeight: 700, border: "1px solid var(--border)", borderRadius: 8, padding: "4px 6px", background: "#fff", color: "var(--primary)", textTransform: "none", letterSpacing: 0 }}>
+          <option value="membres">Trier : membres</option><option value="sauves">Trier : sauvés</option><option value="participants">Trier : participants</option><option value="assemblees">Trier : assemblées</option><option value="population">Trier : population</option>
+        </select>
+      </div>
+      {triees.map(l => {
+        const pop = popDe(l.code); const tl = (Number(l.membres) || 0) + l.participants;
+        const v = tri === "population" ? (pop || 0) : (Number(l[tri]) || 0);
+        return (
+          <div key={l.code} style={carte}>
+            <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+              <span style={{ fontSize: 24 }}>{drapeau(l.code)}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14.5, fontWeight: 700, color: "var(--primary)" }}>{paysParCode(l.code).nom}</div>
+                <div style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{habitants(pop)} hab. · touchés {fmtPct(pct(tl, (pop || 0) * 1e6))}</div>
+              </div>
+            </div>
+            <div style={{ height: 6, borderRadius: 99, background: "var(--accent-soft)", margin: "8px 0", overflow: "hidden" }}><div style={{ height: "100%", width: `${(v / maxTri) * 100}%`, background: "var(--primary)", borderRadius: 99 }} /></div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", fontSize: 12, color: "var(--ink)" }}>
+              <span><b>{nf(l.assemblees)}</b> assemblées</span><span><b>{nf(l.membres)}</b> membres</span><span><b>{nf(l.sauves)}</b> sauvés</span><span><b>{nf(l.ajouts)}</b> ajoutés</span>
+              <span><b>{nf(l.participants)}</b> participants</span><span><b>{nf(l.pasteurs)}</b> pasteurs</span><span><b>{nf(l.predicateurs)}</b> prédicateurs</span><span><b>{nf(l.aspirants)}</b> aspirants</span>
+              <span><b>{l.dates.filter(d => d >= debSem && d <= finSem).length}</b> séminaire(s) cette semaine</span>
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 6 }}>Reste à évangéliser : <b>{nf(Math.max(0, (pop || 0) * 1e6 - tl))}</b></div>
+          </div>
+        );
+      })}
+
+      <button onClick={partager} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, background: "#1F7A5C", color: "#fff", padding: "12px 0", borderRadius: 12, fontSize: 14, fontWeight: 700, marginTop: 4 }}>
+        <Share2 size={16} /> Envoyer ce bilan par WhatsApp
+      </button>
+
+      <button onClick={() => setTous(!tous)} style={{ ...titre, display: "flex", alignItems: "center", gap: 4, background: "none", border: 0, padding: 0, margin: "20px 0 8px" }}>
+        {tous ? "▾" : "▸"} Population des {PAYS.length} pays (ONU 2025, corrigeable)
+      </button>
+      {tous && (
+        <div style={{ background: "#fff", borderRadius: 13, border: "1px solid var(--border)", overflow: "hidden" }}>
+          {[...PAYS].sort((a, b) => (popDe(b.code) || 0) - (popDe(a.code) || 0)).map((p, i) => (
+            <div key={p.code} style={{ padding: "8px 12px", borderTop: i ? "1px solid var(--border)" : "none" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 18 }}>{drapeau(p.code)}</span>
+                <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{p.nom}{p.zone === "diaspora" ? " · diaspora" : ""}</span>
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: pops[p.code] != null ? "var(--accent-dark)" : "var(--ink)" }}>{habitants(popDe(p.code))}</span>
+                <button onClick={() => { setEdit(edit === p.code ? "" : p.code); setVal(pops[p.code] != null ? String(pops[p.code]) : ""); }} style={{ fontSize: 11.5, fontWeight: 700, color: "var(--primary)" }}>Corriger</button>
+              </div>
+              {edit === p.code && (
+                <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                  <input style={{ ...inputStyle, flex: 1 }} inputMode="decimal" value={val} onChange={e => setVal(e.target.value)} placeholder={`en millions (ONU : ${String(POPULATION_2025[p.code] ?? "").replace(".", ",")})`} />
+                  <PrimaryButton icon={Check} onClick={() => enregistrerPop(p.code)}>OK</PrimaryButton>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ fontSize: 11, color: "var(--ink-soft)", marginTop: 12, lineHeight: 1.5 }}>
+        Chiffres mis à jour le {data.at.toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}. Population : estimations des Nations Unies pour 2025 (ordres de grandeur). « Personnes touchées » = membres enregistrés + participants aux séminaires déclarés dans les rapports ; « reste à évangéliser » = population de l'Afrique et des pays de la diaspora où l'Église est présente − personnes touchées (estimation).
+      </div>
+    </div>
+  );
+}
 
 /* ================= ZONES ECCLÉSIASTIQUES =================
    Chaque Point focal (PF) dirige une zone = plusieurs pays.

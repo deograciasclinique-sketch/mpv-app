@@ -25,6 +25,13 @@ Application de l'Église pour **tous les pays d'Afrique et de la diaspora** (Rea
 - L'application garde toute la Bible sur le téléphone dès la première ouverture avec internet (environ 4 Mo) :
   ensuite **tous les livres s'ouvrent avec ou sans connexion**. Boutons A− / A+ pour la taille du texte.
 
+## Statistiques Afrique & diaspora (Bureau Afrique)
+- **Église → 📊 Statistiques** (et carte sur l'Accueil quand le téléphone est en mode Bureau Afrique) : ouvert avec le **code Afrique**.
+- En un écran, pour tous les pays actifs : population (estimations ONU 2025, `src/populations.js`, corrigeables — document commun `populations`),
+  personnes touchées (membres + participants aux séminaires), reste à évangéliser, assemblées, membres, déclarés sauvés,
+  ajoutés à l'église, pasteurs, missionnaires, prédicateurs, aspirants, séminaires aujourd'hui / cette semaine / ce mois / moyenne par semaine,
+  puis le détail pays par pays (tri au choix) et l'envoi du bilan par WhatsApp.
+
 ## Onglets principaux
 - Accueil, **Église**, Séminaires, Programme, Bible, Répertoire, Coordination, Messages, Direction
 
