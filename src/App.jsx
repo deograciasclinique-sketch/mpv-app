@@ -11252,10 +11252,9 @@ function StatsAfrique({ showToast }) {
   const popDiaspora = PAYS.filter(p => p.zone === "diaspora").reduce((t, p) => t + (popDe(p.code) || 0), 0);
   if (!data) return <div style={{ fontSize: 13, color: "var(--ink-soft)", padding: 24, textAlign: "center" }}>Rassemblement des chiffres de tous les pays…</div>;
   const L = data.lignes;
-  // Cible : toute l'Afrique + les pays de la diaspora où l'Église est déjà présente.
-  const diasporaActifs = L.filter(l => paysParCode(l.code).zone === "diaspora");
-  const popDiasporaActive = diasporaActifs.reduce((t, l) => t + (popDe(l.code) || 0), 0);
-  const popTotal = popAfrique + popDiasporaActive;
+  // Cible : toute la population de l'Afrique et des pays de la diaspora. Toute personne qui n'a pas
+  // encore entendu l'Évangile avec Life Word Mission reste à évangéliser, où qu'elle soit.
+  const popTotal = popAfrique + popDiaspora;
   const T = (k) => L.reduce((t, l) => t + (Number(l[k]) || 0), 0);
   const membres = T("membres"), participants = T("participants");
   const touches = membres + participants;
@@ -11300,7 +11299,7 @@ function StatsAfrique({ showToast }) {
   function partager() {
     const l = [
       `📊 *Life Word Mission — Statistiques Afrique & diaspora* (${new Date().toLocaleDateString("fr-FR")})`, "",
-      `🌍 Population à atteindre : ${habitants(popTotal)} (Afrique ${habitants(popAfrique)}${diasporaActifs.length ? `, diaspora active ${habitants(popDiasporaActive)}` : ""})`,
+      `🌍 Population à atteindre : ${habitants(popTotal)} (Afrique ${habitants(popAfrique)}, diaspora ${habitants(popDiaspora)})`,
       `🙌 Personnes touchées : ${nf(touches)} (membres ${nf(membres)} + participants aux séminaires ${nf(participants)})`,
       `🕊️ Reste à évangéliser : ${nf(restant)}`, "",
       `⛪ ${L.length} pays · ${nf(T("assemblees"))} assemblées · ${nf(membres)} membres`,
@@ -11321,10 +11320,9 @@ function StatsAfrique({ showToast }) {
         </div>
         <div style={{ fontSize: 12.5, opacity: .85, marginTop: 8 }}>Population à atteindre (estimation ONU 2025)</div>
         <div style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 700, lineHeight: 1.15 }}>{habitants(popTotal)}</div>
-        <div style={{ fontSize: 12, opacity: .85 }}>Afrique (54 pays) {habitants(popAfrique)}{diasporaActifs.length ? ` · diaspora où l'Église est présente (${diasporaActifs.length} pays) ${habitants(popDiasporaActive)}` : " · aucun pays de la diaspora actif pour l'instant"}</div>
-        <div style={{ fontSize: 11, opacity: .7 }}>Les 16 pays de la diaspora réunis : {habitants(popDiaspora)} (population totale de ces pays)</div>
+        <div style={{ fontSize: 12, opacity: .85 }}>Afrique (54 pays) {habitants(popAfrique)} · diaspora (16 pays) {habitants(popDiaspora)}</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
-          <div><div style={{ fontSize: 11, opacity: .8 }}>Personnes touchées</div><div style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 700, color: "var(--accent)" }}>{nf(touches)}</div><div style={{ fontSize: 10.5, opacity: .75 }}>membres + participants</div></div>
+          <div><div style={{ fontSize: 11, opacity: .8 }}>Personnes touchées</div><div style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 700, color: "var(--accent)" }}>{nf(touches)}</div><div style={{ fontSize: 10.5, opacity: .75 }}>ont entendu l'Évangile avec nous</div></div>
           <div><div style={{ fontSize: 11, opacity: .8 }}>Reste à évangéliser</div><div style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 700 }}>{nf(restant)}</div><div style={{ fontSize: 10.5, opacity: .75 }}>{fmtPct(100 - pct(touches, popTotal * 1e6))} de la population</div></div>
         </div>
         <div style={{ height: 8, borderRadius: 99, background: "rgba(255,255,255,.18)", marginTop: 12, overflow: "hidden" }}>
@@ -11419,7 +11417,7 @@ function StatsAfrique({ showToast }) {
         </div>
       )}
       <div style={{ fontSize: 11, color: "var(--ink-soft)", marginTop: 12, lineHeight: 1.5 }}>
-        Chiffres mis à jour le {data.at.toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}. Population : estimations des Nations Unies pour 2025 (ordres de grandeur). « Personnes touchées » = membres enregistrés + participants aux séminaires déclarés dans les rapports ; « reste à évangéliser » = population de l'Afrique et des pays de la diaspora où l'Église est présente − personnes touchées (estimation).
+        Chiffres mis à jour le {data.at.toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}. Population : estimations des Nations Unies pour 2025 (ordres de grandeur). « Personnes touchées » = personnes qui ont entendu l'Évangile avec Life Word Mission (membres enregistrés + participants aux séminaires déclarés dans les rapports). « Reste à évangéliser » = toute la population de chaque pays (Afrique et diaspora) qui ne l'a pas encore entendu avec nous.
       </div>
     </div>
   );
