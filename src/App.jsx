@@ -12,7 +12,8 @@ import QRCode from "qrcode";
 import { loadKey, loadKeyPays, saveKey, updateKey, loadMembres, saveMembre, deleteMembre, countMembres, migrerAnciensMembres } from "./firebase.js";
 import { APP_NOM, APP_NOM_COURT, PAYS, drapeau, paysCourant, paysChoisi, choisirPays, paysParCode, devise } from "./pays.js";
 import { newVisioLink, canEmbedVisio, VISIO_SERVER } from "./visio.js";
-import { chargerCodes, peutOuvrir, paysProtege, estAfrique, essayerCode, definirCodePays, retirerCodePays, definirCodeAfrique, oublierAfrique, retenirPaysPrecedent, paysPrecedent } from "./acces.js";
+import { chargerCodes, peutOuvrir, paysProtege, estAfrique, essayerCode, definirCodePays, retirerCodePays, definirCodeAfrique, oublierAfrique, retenirPaysPrecedent, paysPrecedent,
+  listeZones, zoneDuPays, estPF, creerZone, entrerCodeZone, quitterZone, codeZoneJuste, ajouterPaysZone, retirerPaysZone, modifierZone, changerCodeZone, supprimerZone } from "./acces.js";
 import { RejoindreVisio, BadgeReunion, RappelsVisio } from "./VisioRoom.jsx";
 import {
   NIVEAUX, ROLES, roleById, DEPARTEMENTS_ALWM, DEPARTEMENTS_NOMS, normDept, POSTES_CD, POSTES_AUTRES, normPoste,
@@ -949,10 +950,11 @@ function EcranCodePays({ codes, onOuvert }) {
             </div>
             <div style={{ fontSize: 13, color: "var(--ink-soft)", margin: "6px 0 16px", lineHeight: 1.5 }}>
               Entrez le code de {PAYS_COURANT.nom} pour ouvrir ses assemblées, séminaires, rapports et finances. Le code est donné par le coordonnateur national.
+              <br />Point focal : entrez le <b>code de votre zone ecclésiastique</b>, il ouvre tous les pays de votre zone.
               <br />Membre du Bureau Afrique : entrez le <b>code Afrique</b>, il ouvre tous les pays.
             </div>
             <Field label="Code d'accès">
-              <PinField value={saisie} placeholder="Code du pays ou code Afrique" onChange={v => { setSaisie(v); setErr(""); }} onKeyDown={e => e.key === "Enter" && valider()} />
+              <PinField value={saisie} placeholder="Code du pays, de la zone ou code Afrique" onChange={v => { setSaisie(v); setErr(""); }} onKeyDown={e => e.key === "Enter" && valider()} />
             </Field>
             {err && <div style={{ fontSize: 12.5, color: "var(--danger)", fontWeight: 600, margin: "-4px 0 12px" }}>{err}</div>}
             <PrimaryButton onClick={valider} icon={Unlock} full>{enCours ? "Vérification…" : `Ouvrir ${PAYS_COURANT.nom}`}</PrimaryButton>
@@ -10287,6 +10289,7 @@ function superieurDe(role, profil, { leadership, districts, regions }) {
 const EGLISE_SOUS = [
   ["role", "Mon rôle"],
   ["pays", "Pays"],
+  ["zones", "Zones"],
   ["organigramme", "Organigramme"],
   ["districts", "Districts"],
   ["roles", "Qui fait quoi"],
@@ -10322,6 +10325,7 @@ function EgliseTab({ sub, setSub, profil, setProfil, go, leadership, regions, di
           showToast={showToast} />
       )}
       {sub === "pays" && <VueAfrique leadership={leadership} natUnlocked={natUnlocked} onUnlockNat={onUnlockNat} showToast={showToast} />}
+      {sub === "zones" && <VueZones leadership={leadership} natUnlocked={natUnlocked} onUnlockNat={onUnlockNat} showToast={showToast} />}
       {sub === "roles" && <QuiFaitQuoi go={go} />}
       {sub === "departements" && <DepartementsALWM deptHeads={deptHeads} />}
       {sub === "rencontres" && <RencontresFormations />}
@@ -11109,6 +11113,250 @@ function CodesAcces({ codes, setCodes, leadership, natUnlocked, onUnlockNat, sho
   );
 }
 
+
+/* ================= ZONES ECCLÉSIASTIQUES =================
+   Chaque Point focal (PF) dirige une zone = plusieurs pays.
+   - Le PF crée sa zone (nom, son nom, son téléphone, code de zone) et y ajoute ses pays.
+   - Ou le coordonnateur d'un pays fait entrer son pays dans une zone avec le code donné par le PF.
+   - Le code de zone ouvre tous les pays de la zone sur le téléphone du PF. */
+function VueZones({ leadership, natUnlocked, onUnlockNat, showToast }) {
+  const [codes, setCodes] = useState(null);
+  const [vue, setVue] = useState(""); // "", "creer", "rejoindre", "ajouter:<id>", "pf:<id>", "infos:<id>", "code:<id>"
+  const [f, setF] = useState({ nom: "", pf: "", tel: "", zone: "", code: "", code2: "", q: "" });
+  const [err, setErr] = useState("");
+  const [enCours, setEnCours] = useState(false);
+  const [sur, setSur] = useState("");
+  useEffect(() => { chargerCodes().then(setCodes); }, []);
+  if (!codes) return <div style={{ fontSize: 13, color: "var(--ink-soft)", padding: 16, textAlign: "center" }}>Chargement des zones…</div>;
+
+  const zones = listeZones(codes);
+  const afrique = estAfrique(codes);
+  const notre = zoneDuPays(codes, PAYS_COURANT.code);
+  const pinCoord = (leadership && leadership.pinCoordonnateurNational) || "";
+  const coordOk = afrique || natUnlocked || !pinCoord;
+  const set = (k, v) => { setF(x => ({ ...x, [k]: v })); setErr(""); };
+  const ouvrir = (v) => { setVue(v); setErr(""); setSur(""); setF(x => ({ ...x, code: "", code2: "", q: "" })); };
+  const fin = (r, ok) => { setEnCours(false); if (r.codes) setCodes(r.codes); if (r.erreur) { setErr(r.erreur); return false; } showToast(ok); ouvrir(""); return true; };
+
+  const carte = { background: "#fff", borderRadius: 14, border: "1px solid var(--border)", padding: 14, marginBottom: 12 };
+  const titre = { display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 700, color: "var(--accent-dark)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 6 };
+  const texte = { fontSize: 12.5, color: "var(--ink-soft)", lineHeight: 1.45 };
+  const lien = { fontSize: 12.5, fontWeight: 700, color: "var(--primary)", padding: "6px 0" };
+  const erreur = err ? <div style={{ fontSize: 12.5, color: "var(--danger)", fontWeight: 600, margin: "4px 0 10px" }}>{err}</div> : null;
+  const drapeaux = (z) => z.pays.length ? z.pays.map(c => paysParCode(c)).filter(Boolean).map(p => `${drapeau(p.code)} ${p.nom}`).join(" · ") : "Aucun pays pour l'instant";
+
+  async function creer() {
+    if (!f.nom.trim()) return setErr("Donnez un nom à la zone (ex. Zone Afrique de l'Ouest).");
+    if (!f.pf.trim()) return setErr("Indiquez le nom du Point focal.");
+    if (f.code.trim().length < 4) return setErr("Le code de zone doit avoir au moins 4 chiffres ou lettres.");
+    if (f.code.trim() !== f.code2.trim()) return setErr("Les deux codes ne sont pas pareils.");
+    setEnCours(true);
+    const r = await creerZone({ nom: f.nom, pf: f.pf, tel: f.tel }, f.code.trim());
+    if (fin(r, `Zone « ${f.nom.trim()} » créée. Ajoutez vos pays, ou donnez le code de zone à leurs coordonnateurs.`)) setF(x => ({ ...x, nom: "", pf: "", tel: "" }));
+  }
+  async function rejoindre() {
+    if (!f.zone) return setErr("Choisissez la zone.");
+    if (!(await codeZoneJuste(codes, f.zone, f.code))) return setErr("Code de zone incorrect. Demandez-le à votre Point focal.");
+    setEnCours(true);
+    fin(await ajouterPaysZone(f.zone, PAYS_COURANT.code, true), `${PAYS_COURANT.nom} fait maintenant partie de la zone « ${codes.zones[f.zone].nom} »`);
+  }
+  async function devenirPF(id) {
+    if (await entrerCodeZone(codes, id, f.code)) { setCodes({ ...codes }); showToast(`Vous êtes le Point focal de « ${codes.zones[id].nom} » sur ce téléphone`); ouvrir(""); }
+    else setErr("Code de zone incorrect.");
+  }
+
+  // ---- un pays à ajouter (sélecteur) ----
+  if (vue.startsWith("ajouter:")) {
+    const id = vue.slice(8), z = codes.zones[id];
+    const norm = (x) => (x || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+    const liste = PAYS.filter(p => !z.pays.includes(p.code) && (!f.q || norm(p.nom).includes(norm(f.q))));
+    return (
+      <div>
+        <button onClick={() => ouvrir("")} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13, fontWeight: 700, color: "var(--primary)", marginBottom: 10 }}><ChevronLeft size={16} /> Retour</button>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 17, fontWeight: 700, color: "var(--primary)" }}>Ajouter un pays à « {z.nom} »</div>
+        <div style={{ ...texte, margin: "4px 0 12px" }}>Un pays déjà rattaché à une autre zone ne peut être déplacé que par son coordonnateur ou par le Bureau Afrique.</div>
+        {erreur}
+        <div style={{ position: "relative", marginBottom: 12 }}>
+          <Search size={15} color="var(--ink-soft)" style={{ position: "absolute", left: 11, top: 12 }} />
+          <input style={{ ...inputStyle, paddingLeft: 33 }} value={f.q} onChange={e => set("q", e.target.value)} placeholder="Rechercher un pays" />
+        </div>
+        <div style={{ background: "#fff", borderRadius: 13, border: "1px solid var(--border)", overflow: "hidden" }}>
+          {liste.map((p, i) => {
+            const autre = zoneDuPays(codes, p.code);
+            const bloque = autre && !afrique;
+            return (
+              <button key={p.code} disabled={bloque || enCours} onClick={async () => { setEnCours(true); fin(await ajouterPaysZone(id, p.code, afrique), `${p.nom} ajouté à la zone « ${z.nom} »`); }}
+                style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", padding: "10px 12px", borderTop: i ? "1px solid var(--border)" : "none", background: "#fff", opacity: bloque ? .5 : 1 }}>
+                <span style={{ fontSize: 22 }}>{drapeau(p.code)}</span>
+                <span style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>{p.nom}{autre && <span style={{ display: "block", fontSize: 11.5, fontWeight: 500, color: "var(--ink-soft)" }}>déjà dans « {autre.nom} »{afrique ? " · sera déplacé" : ""}</span>}</span>
+                {bloque ? <Lock size={14} color="var(--ink-soft)" /> : <Plus size={16} color="var(--primary)" />}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ background: "linear-gradient(135deg, var(--primary), var(--primary-light))", color: "#fff", borderRadius: 16, padding: 16, marginBottom: 14 }}>
+        <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--accent)", fontWeight: 700 }}>Zones ecclésiastiques</div>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 700, marginTop: 2 }}>Chaque Point focal dirige sa zone</div>
+        <div style={{ fontSize: 12.5, opacity: .9, marginTop: 6, lineHeight: 1.45 }}>Le Point focal crée sa zone et son code. Il y ajoute ses pays, ou les coordonnateurs nationaux y font entrer leur pays avec ce code. Le code de zone ouvre tous les pays de la zone.</div>
+        <div style={{ display: "flex", gap: 16, marginTop: 10, fontSize: 12.5 }}><span><b>{zones.length}</b> zone{zones.length > 1 ? "s" : ""}</span><span><b>{zones.reduce((t, z) => t + z.pays.length, 0)}</b> pays rattachés</span></div>
+      </div>
+
+      {/* Notre pays */}
+      <div style={{ ...carte, borderColor: notre ? "var(--primary)" : "var(--border)" }}>
+        <div style={titre}><Globe size={13} /> {drapeau(PAYS_COURANT.code)} {PAYS_COURANT.nom} · notre zone</div>
+        {notre ? (
+          <>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "var(--primary)" }}>{notre.nom}</div>
+            <div style={texte}>Point focal : <b>{notre.pf || "—"}</b>{notre.tel ? ` · ${notre.tel}` : ""}</div>
+            {(coordOk || estPF(codes, notre.id)) && (sur === "quitter" ? (
+              <div style={{ display: "flex", gap: 12, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <span style={{ ...texte, color: "var(--danger)", fontWeight: 600 }}>Retirer {PAYS_COURANT.nom} de cette zone ?</span>
+                <button style={{ ...lien, color: "var(--danger)" }} onClick={async () => { setEnCours(true); fin(await retirerPaysZone(notre.id, PAYS_COURANT.code), `${PAYS_COURANT.nom} ne fait plus partie de « ${notre.nom} »`); }}>Oui, retirer</button>
+                <button style={{ ...lien, color: "var(--ink-soft)" }} onClick={() => setSur("")}>Annuler</button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                {coordOk && <button style={lien} onClick={() => ouvrir("rejoindre")}>Changer de zone</button>}
+                <button style={{ ...lien, color: "var(--danger)" }} onClick={() => setSur("quitter")}>Quitter la zone</button>
+              </div>
+            ))}
+          </>
+        ) : (
+          <div style={texte}>{PAYS_COURANT.nom} n'est rattaché à <b>aucune zone</b>. Le coordonnateur national peut le faire entrer dans la zone de son Point focal, avec le code de zone.
+            {vue !== "rejoindre" && (coordOk
+              ? <div><button style={lien} onClick={() => ouvrir("rejoindre")}>Faire entrer {PAYS_COURANT.nom} dans une zone →</button></div>
+              : <div style={{ marginTop: 8 }}>Il faut d'abord le <b>code du coordonnateur national</b>.
+                  <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                    <div style={{ flex: 1 }}><PinField value={f.coord || ""} onChange={v => set("coord", v)} placeholder="Code du coordonnateur national" onKeyDown={e => e.key === "Enter" && (String(f.coord || "").trim() === pinCoord ? (onUnlockNat(), set("coord", "")) : setErr("Code du coordonnateur incorrect."))} /></div>
+                    <PrimaryButton icon={Unlock} onClick={() => { if (String(f.coord || "").trim() === pinCoord) { onUnlockNat(); set("coord", ""); } else setErr("Code du coordonnateur incorrect."); }}>OK</PrimaryButton>
+                  </div>{vue === "" && erreur}</div>)}
+          </div>
+        )}
+        {vue === "rejoindre" && (
+          <div style={{ marginTop: 10, background: "var(--accent-soft)", borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--primary)", marginBottom: 8 }}>Rejoindre une zone ecclésiastique</div>
+            {zones.length === 0 ? <div style={texte}>Aucune zone n'existe encore : votre Point focal doit d'abord créer la sienne.</div> : <>
+              <Field label="Zone"><select style={inputStyle} value={f.zone} onChange={e => set("zone", e.target.value)}><option value="">— Choisir la zone —</option>{zones.filter(z => !notre || z.id !== notre.id).map(z => <option key={z.id} value={z.id}>{z.nom}{z.pf ? ` (PF : ${z.pf})` : ""}</option>)}</select></Field>
+              <Field label="Code de la zone (donné par le Point focal)"><PinField value={f.code} onChange={v => set("code", v)} placeholder="Code de zone" onKeyDown={e => e.key === "Enter" && rejoindre()} /></Field>
+            </>}
+            {erreur}
+            <div style={{ display: "flex", gap: 8 }}>
+              {zones.length > 0 && <PrimaryButton onClick={rejoindre} icon={Check}>{enCours ? "Enregistrement…" : "Rejoindre"}</PrimaryButton>}
+              <button onClick={() => ouvrir("")} style={{ padding: "11px 14px", fontSize: 14, fontWeight: 600, color: "var(--ink-soft)" }}>Annuler</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Toutes les zones */}
+      <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--accent-dark)", textTransform: "uppercase", letterSpacing: ".04em", margin: "4px 0 8px" }}>Toutes les zones</div>
+      {zones.length === 0 && <EmptyState icon={Network} text="Aucune zone pour l'instant. Point focal : créez votre zone ci-dessous." />}
+      {zones.map(z => {
+        const pf = estPF(codes, z.id);
+        const gere = pf || afrique;
+        return (
+          <div key={z.id} style={{ ...carte, borderColor: pf ? "var(--primary)" : "var(--border)" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "var(--primary)" }}>{z.nom}</div>
+                <div style={texte}>Point focal : <b>{z.pf || "—"}</b></div>
+              </div>
+              {pf && <span style={{ fontSize: 11, fontWeight: 800, color: "#fff", background: "var(--primary)", borderRadius: 99, padding: "3px 9px", whiteSpace: "nowrap" }}>Ma zone</span>}
+            </div>
+            {z.tel && <div style={{ display: "flex", gap: 14, marginTop: 4 }}>
+              <a href={`tel:${z.tel.replace(/[^\d+]/g, "")}`} style={{ ...lien, display: "inline-flex", alignItems: "center", gap: 4, textDecoration: "none" }}><Phone size={13} /> {z.tel}</a>
+              <a href={whatsappLink(z.tel, `Bonjour ${z.pf || ""}, `)} target="_blank" rel="noopener noreferrer" style={{ ...lien, display: "inline-flex", alignItems: "center", gap: 4, textDecoration: "none" }}><MessageCircle size={13} /> WhatsApp</a>
+            </div>}
+            <div style={{ fontSize: 12.5, marginTop: 6, lineHeight: 1.6 }}>{drapeaux(z)}</div>
+
+            {gere && z.pays.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+                {z.pays.map(c => paysParCode(c)).filter(Boolean).map(p => (
+                  <div key={p.code} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--bg, #F7F5F0)", borderRadius: 10, padding: "6px 10px" }}>
+                    <span style={{ fontSize: 18 }}>{drapeau(p.code)}</span><span style={{ flex: 1, fontSize: 13.5, fontWeight: 600 }}>{p.nom}</span>
+                    {p.code !== PAYS_COURANT.code && <button onClick={() => choisirPays(p.code)} style={{ fontSize: 12, fontWeight: 700, color: "var(--primary)" }}>Ouvrir →</button>}
+                    {sur === z.id + ":" + p.code
+                      ? <button onClick={async () => { setEnCours(true); fin(await retirerPaysZone(z.id, p.code), `${p.nom} retiré de « ${z.nom} »`); }} style={{ fontSize: 12, fontWeight: 700, color: "var(--danger)" }}>Confirmer</button>
+                      : <button onClick={() => setSur(z.id + ":" + p.code)} aria-label={`Retirer ${p.nom}`} style={{ color: "var(--danger)", padding: 4 }}><X size={15} /></button>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {gere && (vue === "infos:" + z.id ? (
+              <div style={{ marginTop: 10, background: "var(--accent-soft)", borderRadius: 12, padding: 12 }}>
+                <Field label="Nom de la zone"><input style={inputStyle} value={f.nom} onChange={e => set("nom", e.target.value)} maxLength={60} /></Field>
+                <Field label="Point focal"><input style={inputStyle} value={f.pf} onChange={e => set("pf", e.target.value)} maxLength={80} /></Field>
+                <Field label="Téléphone du Point focal"><input style={inputStyle} type="tel" value={f.tel} onChange={e => set("tel", e.target.value)} maxLength={30} /></Field>
+                {erreur}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <PrimaryButton icon={Check} onClick={async () => { if (!f.nom.trim()) return setErr("Le nom est obligatoire."); setEnCours(true); fin(await modifierZone(z.id, f), "Zone mise à jour"); }}>Enregistrer</PrimaryButton>
+                  <button onClick={() => ouvrir("")} style={{ padding: "11px 14px", fontSize: 14, fontWeight: 600, color: "var(--ink-soft)" }}>Annuler</button>
+                </div>
+              </div>
+            ) : vue === "code:" + z.id ? (
+              <FormCode titre={`Nouveau code de « ${z.nom} »`} aide="Donnez le nouveau code aux coordonnateurs qui doivent encore rejoindre la zone. Les pays déjà dans la zone y restent."
+                onAnnuler={() => ouvrir("")}
+                onValider={async (v) => fin(await changerCodeZone(z.id, v), "Code de zone changé")} />
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 8 }}>
+                <button style={lien} onClick={() => ouvrir("ajouter:" + z.id)}>+ Ajouter un pays</button>
+                <button style={lien} onClick={() => { ouvrir("infos:" + z.id); setF(x => ({ ...x, nom: z.nom, pf: z.pf, tel: z.tel })); }}>Modifier</button>
+                <button style={lien} onClick={() => ouvrir("code:" + z.id)}>Changer le code</button>
+                {pf && <button style={{ ...lien, color: "var(--ink-soft)" }} onClick={() => { quitterZone(z.id); setCodes({ ...codes }); showToast("Ce téléphone n'est plus en mode Point focal pour cette zone"); }}>Quitter le mode PF</button>}
+                {sur === "suppr:" + z.id
+                  ? <button style={{ ...lien, color: "var(--danger)" }} onClick={async () => { setEnCours(true); fin(await supprimerZone(z.id), `Zone « ${z.nom} » supprimée (les pays restent intacts)`); }}>Confirmer la suppression</button>
+                  : <button style={{ ...lien, color: "var(--danger)" }} onClick={() => setSur("suppr:" + z.id)}>Supprimer la zone</button>}
+              </div>
+            ))}
+
+            {!gere && (vue === "pf:" + z.id ? (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ ...texte, marginBottom: 6 }}>Vous êtes le Point focal de cette zone ? Entrez le code de zone.</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <div style={{ flex: 1 }}><PinField value={f.code} onChange={v => set("code", v)} placeholder="Code de zone" onKeyDown={e => e.key === "Enter" && devenirPF(z.id)} /></div>
+                  <PrimaryButton onClick={() => devenirPF(z.id)} icon={Unlock}>OK</PrimaryButton>
+                </div>
+                {erreur}
+              </div>
+            ) : <button style={{ ...lien, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 4 }} onClick={() => ouvrir("pf:" + z.id)}><Lock size={12} /> Je suis le Point focal de cette zone</button>)}
+          </div>
+        );
+      })}
+
+      {/* Créer une zone */}
+      <div style={{ ...carte, background: "var(--accent-soft)", borderStyle: "dashed" }}>
+        <div style={titre}><Plus size={13} /> Point focal : créer ma zone</div>
+        {vue !== "creer" ? (
+          <>
+            <div style={texte}>Créez votre zone ecclésiastique et choisissez son code. Ce code est le verrou de votre zone : vous seul le donnez aux coordonnateurs de vos pays.</div>
+            <button style={lien} onClick={() => ouvrir("creer")}>Créer ma zone →</button>
+          </>
+        ) : (
+          <>
+            <Field label="Nom de la zone"><input style={inputStyle} value={f.nom} onChange={e => set("nom", e.target.value)} placeholder="ex. Zone Afrique de l'Ouest" maxLength={60} /></Field>
+            <Field label="Nom du Point focal"><input style={inputStyle} value={f.pf} onChange={e => set("pf", e.target.value)} placeholder="ex. Pasteur Joseph Saré" maxLength={80} /></Field>
+            <Field label="Téléphone (WhatsApp)"><input style={inputStyle} type="tel" value={f.tel} onChange={e => set("tel", e.target.value)} placeholder="ex. +226 70 00 00 00" maxLength={30} /></Field>
+            <Field label="Code de la zone"><PinField value={f.code} onChange={v => set("code", v)} placeholder="Au moins 4 chiffres ou lettres" /></Field>
+            <Field label="Confirmer le code"><PinField value={f.code2} onChange={v => set("code2", v)} placeholder="Retapez le code" onKeyDown={e => e.key === "Enter" && creer()} /></Field>
+            {erreur}
+            <div style={{ display: "flex", gap: 8 }}>
+              <PrimaryButton onClick={creer} icon={Check}>{enCours ? "Création…" : "Créer la zone"}</PrimaryButton>
+              <button onClick={() => ouvrir("")} style={{ padding: "11px 14px", fontSize: 14, fontWeight: 600, color: "var(--ink-soft)" }}>Annuler</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Vue Afrique : tous les pays qui utilisent l'app.
 function VueAfrique({ leadership, natUnlocked, onUnlockNat, showToast }) {
   const [lignes, setLignes] = useState(null);
@@ -11187,6 +11435,7 @@ function VueAfrique({ leadership, natUnlocked, onUnlockNat, showToast }) {
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 14.5, fontWeight: 700, color: "var(--primary)" }}>{l.pays.nom}{l.pays.zone === "diaspora" ? " · diaspora" : ""}</div>
                     <div style={{ fontSize: 12, color: l.coordonnateur ? "var(--ink-soft)" : "var(--danger)" }}>Coordonnateur : {l.coordonnateur || "à renseigner"}</div>
+                    {codes && <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>Zone : {zoneDuPays(codes, l.pays.code) ? <b style={{ color: "var(--primary)" }}>{zoneDuPays(codes, l.pays.code).nom}</b> : "aucune"}</div>}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 14, marginTop: 8, fontSize: 12, color: "var(--ink)" }}>

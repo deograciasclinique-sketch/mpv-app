@@ -10,6 +10,16 @@ Application de l'Église pour **tous les pays d'Afrique et de la diaspora** (Rea
 - La monnaie (FCFA, NGN, CDF, EUR…) et l'indicatif WhatsApp (+226, +225, +237…) suivent le pays choisi.
 - **Église → Pays** : vue du Bureau Afrique avec chaque pays qui utilise l'app (coordonnateur, assemblées, districts, rapports de la semaine) et bouton pour ouvrir un autre pays.
 
+## Zones ecclésiastiques (Points focaux)
+- Chaque **Point focal (PF)** dirige une **zone ecclésiastique** = plusieurs pays. Écran : **Église → Zones**.
+- **Le PF crée sa zone** : nom, son nom, son téléphone et un **code de zone** (le verrou de la zone). Son téléphone devient celui du PF.
+- **Ajouter des pays** : le PF les ajoute lui-même (« + Ajouter un pays »), ou **le coordonnateur national** fait entrer son pays
+  (« Faire entrer … dans une zone ») avec le code de zone donné par le PF (et son propre code de coordonnateur s'il en a un).
+- Un pays n'est que dans **une** zone. Un PF ne peut pas prendre un pays d'une autre zone : seul le coordonnateur du pays ou le Bureau Afrique peut le changer de zone.
+- **Le code de zone ouvre tous les pays de la zone** (comme le code Afrique, mais limité à la zone). Un autre PF peut se déclarer sur son téléphone avec « Je suis le Point focal de cette zone » + code.
+- Le PF (ou le Bureau Afrique) peut modifier sa zone, changer son code, retirer un pays ou supprimer la zone (les pays restent intacts).
+- Les codes ne sont jamais gardés en clair : seule leur empreinte est enregistrée dans `codes-acces` → `zones`.
+
 ## Onglets principaux
 - Accueil, **Église**, Séminaires, Programme, Bible, Répertoire, Coordination, Messages, Direction
 
