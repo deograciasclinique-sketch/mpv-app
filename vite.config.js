@@ -7,6 +7,12 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
+      // La Bible complète (Louis Segond 1910, un fichier par livre) est gardée sur le téléphone
+      // dès l'installation : tous les livres s'ouvrent avec ou sans connexion.
+      workbox: {
+        globPatterns: ["**/*.{js,css,html,png,svg,ico,json,webmanifest}"],
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
+      },
       includeAssets: ["favicon.png", "apple-touch-icon.png"],
       manifest: {
         name: "Life Word Mission",

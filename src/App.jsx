@@ -656,6 +656,28 @@ function getChapterVerses(book, chapterNum) {
   return (book.chapters && book.chapters[chapterNum]) || [];
 }
 
+/* Bible complète Louis Segond 1910 (domaine public) : public/bible/<ID>.json = [[verset1, verset2…], …].
+   Les fichiers sont gardés sur le téléphone par l'application (hors connexion). */
+const BIBLE_CACHE = {};
+function chargerLivre(id) {
+  if (!BIBLE_CACHE[id]) {
+    BIBLE_CACHE[id] = fetch(`/bible/${id}.json`).then(r => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+      .catch(e => { delete BIBLE_CACHE[id]; throw e; });
+  }
+  return BIBLE_CACHE[id];
+}
+function useLivreBible(id) {
+  const [etat, setEtat] = useState({ id: null, data: null, err: false });
+  useEffect(() => {
+    if (!id) return;
+    let vivant = true;
+    setEtat(e => (e.id === id ? e : { id, data: null, err: false }));
+    chargerLivre(id).then(d => vivant && setEtat({ id, data: d, err: false })).catch(() => vivant && setEtat({ id, data: null, err: true }));
+    return () => { vivant = false; };
+  }, [id]);
+  return etat.id === id ? etat : { id, data: null, err: false };
+}
+
 /* Plan de lecture chronologique : 2 chapitres de l'Ancien Testament + 1 chapitre
    du Nouveau Testament par jour, en commençant par Genèse 1 et Matthieu 1. */
 function buildTestamentChapterList(testament) {
@@ -9909,6 +9931,10 @@ function BibleReader() {
   const [search, setSearch] = useState("");
   const [book, setBook] = useState(null);
   const [chapter, setChapter] = useState(null);
+  const [taille, setTaille] = useState(() => { try { return Number(localStorage.getItem("lwm-bible-taille")) || 16; } catch (e) { return 16; } });
+  const livre = useLivreBible(book ? book.id : null);
+  const changerTaille = (d) => { const t = Math.max(13, Math.min(26, taille + d)); setTaille(t); try { localStorage.setItem("lwm-bible-taille", String(t)); } catch (e) {} };
+  useEffect(() => { window.scrollTo && window.scrollTo(0, 0); document.querySelector("main")?.scrollTo?.(0, 0); }, [book, chapter]);
 
   const filteredBooks = FRENCH_BIBLE_BOOKS.filter(b =>
     (category === "Tous" || b.category === category) &&
@@ -9916,7 +9942,8 @@ function BibleReader() {
   );
 
   if (book && chapter) {
-    const verses = getChapterVerses(book, chapter);
+    const complet = livre.data && Array.isArray(livre.data[chapter - 1]) ? livre.data[chapter - 1].map((t, i) => ({ verse: i + 1, text: t })).filter(v => v.text) : null;
+    const verses = complet || getChapterVerses(book, chapter);
     return (
       <div>
         <button onClick={() => setChapter(null)} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5, color: "var(--primary)", fontWeight: 600, marginBottom: 12 }}>
@@ -9925,12 +9952,18 @@ function BibleReader() {
         <div style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 700, color: "var(--primary)", marginBottom: 4 }}>
           {book.name} {chapter}
         </div>
-        <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginBottom: 14 }}>Texte : Segond 1910 (domaine public)</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+          <div style={{ flex: 1, fontSize: 11.5, color: "var(--ink-soft)" }}>Louis Segond 1910{complet ? ` · ${verses.length} versets` : ""}</div>
+          <button onClick={() => changerTaille(-2)} aria-label="Texte plus petit" style={{ width: 36, height: 32, borderRadius: 8, border: "1px solid var(--border)", background: "#fff", fontSize: 13, fontWeight: 700 }}>A−</button>
+          <button onClick={() => changerTaille(2)} aria-label="Texte plus grand" style={{ width: 36, height: 32, borderRadius: 8, border: "1px solid var(--border)", background: "#fff", fontSize: 16, fontWeight: 700 }}>A+</button>
+        </div>
 
-        {verses.length === 0 ? (
+        {!complet && !livre.err && verses.length === 0 ? (
+          <div style={{ fontSize: 13, color: "var(--ink-soft)", padding: 24, textAlign: "center" }}>Ouverture du chapitre…</div>
+        ) : verses.length === 0 ? (
           <div style={{ background: "#fff", borderRadius: 13, border: "1px dashed var(--border)", padding: 18, textAlign: "center" }}>
             <div style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 10 }}>
-              Ce chapitre n'est pas encore disponible dans notre sélection de versets.
+              Ce livre n'est pas encore enregistré sur ce téléphone. Ouvrez l'application une fois avec internet : toute la Bible sera ensuite gardée pour être lue sans connexion.
             </div>
             <a href={wikisourceLink(book.id)} target="_blank" rel="noopener noreferrer" style={{
               display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, fontWeight: 600, color: "#fff",
@@ -9942,7 +9975,7 @@ function BibleReader() {
         ) : (
           <div style={{ background: "#fff", borderRadius: 13, border: "1px solid var(--border)", padding: "16px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
             {verses.map(v => (
-              <div key={v.verse} style={{ fontSize: 14.5, lineHeight: 1.7, color: "var(--ink)" }}>
+              <div key={v.verse} style={{ fontSize: taille, lineHeight: 1.7, color: "var(--ink)" }}>
                 <span style={{ fontWeight: 700, color: "var(--accent-dark)", marginRight: 6 }}>{v.verse}</span>
                 {v.text}
               </div>
@@ -9977,7 +10010,7 @@ function BibleReader() {
         <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginBottom: 14 }}>{book.testament} Testament · {book.chaptersCount} chapitres</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8 }}>
           {chapters.map(c => {
-            const hasContent = (book.chapters[c] || []).length > 0;
+            const hasContent = !!livre.data || (book.chapters[c] || []).length > 0;
             return (
               <button key={c} onClick={() => setChapter(c)} style={{
                 aspectRatio: "1", borderRadius: 9, fontSize: 13, fontWeight: 700,
@@ -9989,7 +10022,7 @@ function BibleReader() {
         </div>
         <div style={{ fontSize: 11, color: "var(--ink-soft)", marginTop: 12 }}>
           <span style={{ display: "inline-block", width: 10, height: 10, background: "var(--accent-soft)", borderRadius: 3, marginRight: 5, verticalAlign: "middle" }} />
-          Chapitre avec versets disponibles dans l'app
+          {livre.data ? "Toute la Bible est disponible dans l'app, même sans connexion" : "Chapitre disponible dans l'app"}
         </div>
       </div>
     );
@@ -10025,7 +10058,7 @@ function BibleReader() {
         ))}
       </div>
       <div style={{ fontSize: 11, color: "var(--ink-soft)", marginTop: 16, lineHeight: 1.5, textAlign: "center" }}>
-        Sélection de versets marquants par livre (Segond 1910, domaine public).<br />
+        <b style={{ color: "var(--primary)" }}>Bible complète Louis Segond 1910</b> · 66 livres · lisible avec ou sans connexion.<br />
         <a href="https://fr.wikisource.org/wiki/Bible_Segond_1910" target="_blank" rel="noopener noreferrer" style={{ color: "var(--primary)", fontWeight: 600 }}>
           Lire la Bible intégrale (Segond 1910, page web) ↗
         </a>

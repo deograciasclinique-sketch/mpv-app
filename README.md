@@ -20,6 +20,11 @@ Application de l'Église pour **tous les pays d'Afrique et de la diaspora** (Rea
 - Le PF (ou le Bureau Afrique) peut modifier sa zone, changer son code, retirer un pays ou supprimer la zone (les pays restent intacts).
 - Les codes ne sont jamais gardés en clair : seule leur empreinte est enregistrée dans `codes-acces` → `zones`.
 
+## Bible hors connexion
+- **Bible complète Louis Segond 1910** (domaine public) : 66 livres, 31 102 versets, un fichier par livre dans `public/bible/<ID>.json`.
+- L'application garde toute la Bible sur le téléphone dès la première ouverture avec internet (environ 4 Mo) :
+  ensuite **tous les livres s'ouvrent avec ou sans connexion**. Boutons A− / A+ pour la taille du texte.
+
 ## Onglets principaux
 - Accueil, **Église**, Séminaires, Programme, Bible, Répertoire, Coordination, Messages, Direction
 
