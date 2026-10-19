@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import {
-  getFirestore, doc, getDoc, setDoc, runTransaction, collection, getDocs, deleteDoc,
+  getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+  doc, getDoc, setDoc, runTransaction, collection, getDocs, deleteDoc,
   query, where, getCountFromServer, writeBatch,
 } from "firebase/firestore";
 import { prefixePays } from "./pays.js";
@@ -19,7 +20,15 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+// Les données déjà ouvertes restent sur le téléphone : l'app s'ouvre et s'affiche même sans internet.
+function initBase() {
+  try {
+    return initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
+  } catch (e) {
+    return getFirestore(app); // navigateur sans stockage local : fonctionnement normal en ligne
+  }
+}
+export const db = initBase();
 
 // Toutes les données de l'app (répertoire, séminaires, rapports…) sont
 // stockées comme des documents dans la collection "mpv-data".

@@ -32,6 +32,17 @@ Application de l'Église pour **tous les pays d'Afrique et de la diaspora** (Rea
   ajoutés à l'église, pasteurs, missionnaires, prédicateurs, aspirants, séminaires aujourd'hui / cette semaine / ce mois / moyenne par semaine,
   puis le détail pays par pays (tri au choix) et l'envoi du bilan par WhatsApp.
 
+## Application Android (APK officiel)
+- Projet Android dans `android/` (Capacitor). À chaque envoi sur `main`, **GitHub Actions** (`.github/workflows/android.yml`) construit
+  l'APK final signé et le publie dans **Releases** : `https://github.com/deograciasclinique-sketch/mpv-app/releases/latest/download/Life-Word-Mission.apk`.
+- **Signature** : la clé `android/app/lwm.keystore` est verrouillée par un mot de passe gardé seulement dans le secret GitHub
+  `LWM_KEYSTORE_PASSWORD` (Settings → Secrets and variables → Actions). Sans ce secret, GitHub fabrique un APK de test non publié.
+  Ne jamais perdre ce mot de passe : sans lui, impossible de publier des mises à jour qui s'installent par-dessus.
+- Dans l'APK : bouton retour d'Android (ferme la fenêtre, revient à l'Accueil, « appuyez encore pour quitter »), bandeau hors connexion,
+  données déjà ouvertes gardées sur le téléphone, polices intégrées, écran d'erreur propre (plus d'écran blanc), recherche de mise à jour,
+  envoi de l'APK par WhatsApp même sans internet (Menu → carte Application).
+- Le site web (Vercel) continue de fonctionner comme avant.
+
 ## Onglets principaux
 - Accueil, **Église**, Séminaires, Programme, Bible, Répertoire, Coordination, Messages, Direction
 

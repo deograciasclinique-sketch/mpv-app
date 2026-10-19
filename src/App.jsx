@@ -11,6 +11,7 @@ import {
 import QRCode from "qrcode";
 import { loadKey, loadKeyPays, saveKey, updateKey, loadMembres, saveMembre, deleteMembre, countMembres, countMembresPays, migrerAnciensMembres } from "./firebase.js";
 import { POPULATION_2025 } from "./populations.js";
+import { NATIF, APK_LINK, useRetour, brancherRetour, versionInstallee, chercherMiseAJour, ouvrirLien, envoyerApk, envoyerLienApk } from "./natif.js";
 import { APP_NOM, APP_NOM_COURT, PAYS, drapeau, paysCourant, paysChoisi, choisirPays, paysParCode, devise } from "./pays.js";
 import { newVisioLink, canEmbedVisio, VISIO_SERVER } from "./visio.js";
 import { chargerCodes, peutOuvrir, paysProtege, estAfrique, essayerCode, definirCodePays, retirerCodePays, definirCodeAfrique, oublierAfrique, retenirPaysPrecedent, paysPrecedent,
@@ -1115,6 +1116,19 @@ function AppPays() {
     setTimeout(() => setToast(null), 2200);
   }
 
+  // Bouton retour d'Android : ferme la fenêtre ouverte, sinon revient à l'Accueil, sinon « appuyez encore pour quitter ».
+  const tabRef = useRef(tab); tabRef.current = tab;
+  useEffect(() => brancherRetour(() => { if (tabRef.current !== "accueil") { setTab("accueil"); remonter(); return true; } return false; }, showToast), []);
+  // Connexion internet et nouvelle version de l'APK
+  const [enLigne, setEnLigne] = useState(typeof navigator === "undefined" || navigator.onLine !== false);
+  const [majApk, setMajApk] = useState(null);
+  useEffect(() => {
+    const on = () => setEnLigne(true), off = () => setEnLigne(false);
+    window.addEventListener("online", on); window.addEventListener("offline", off);
+    const t = setTimeout(() => chercherMiseAJour().then(setMajApk), 4000);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); clearTimeout(t); };
+  }, []);
+
   async function persistPastors(next) {
     setPastors(next);
     // Le stockage sépare le texte (léger) des photos (plus lourdes), pour qu'une
@@ -1214,6 +1228,18 @@ function AppPays() {
   return (
     <Shell>
       <Header onMenu={() => setTab("aide")} active={tab === "aide"} />
+      {!enLigne && (
+        <div role="status" style={{ background: "#3A2F12", color: "#F3E7C7", fontSize: 12, fontWeight: 600, padding: "6px 14px", display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          <span style={{ width: 7, height: 7, borderRadius: 99, background: "#E0A63A", flex: "none" }} /> Hors connexion · la Bible et les données déjà ouvertes restent disponibles
+        </div>
+      )}
+      {majApk && (
+        <div role="status" style={{ background: "var(--accent-soft)", color: "var(--primary)", fontSize: 13, fontWeight: 700, padding: "8px 12px 8px 14px", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <RefreshCw size={15} /> <span style={{ flex: 1 }}>Nouvelle version {majApk.version} disponible</span>
+          <button onClick={() => { showToast("Téléchargement… puis ouvrez le fichier pour installer"); ouvrirLien(majApk.url); }} style={{ background: "var(--primary)", color: "#fff", borderRadius: 9, padding: "7px 11px", fontSize: 12.5, fontWeight: 700 }}>Mettre à jour</button>
+          <button onClick={() => setMajApk(null)} aria-label="Plus tard" style={{ padding: 4, display: "flex" }}><X size={15} /></button>
+        </div>
+      )}
       <div id="mpv-scroll" style={{ flex: 1, overflowY: "auto", padding: "16px 16px 90px" }}>
         {tab === "aide" && <MenuTab setTab={go} showToast={showToast} />}
         {tab === "accueil" && (
@@ -1333,7 +1359,6 @@ function Shell({ children }) {
   return (
     <div style={{ position: "relative", maxWidth: 480, margin: "0 auto", height: "100vh", display: "flex", flexDirection: "column", background: "var(--bg)", fontFamily: "var(--font-body)", color: "var(--ink)" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap');
         :root {
           --bg: #EDEEE6;
           --surface: #FFFFFF;
@@ -1575,14 +1600,19 @@ function MenuTab({ setTab, showToast }) {
 
       <ShareAppCard showToast={showToast} />
 
+      <CarteApplication showToast={showToast} />
+
       {section("Installer l'app sur le téléphone")}
       <div style={box}>
-        <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13.5, fontWeight: 700, marginBottom: 6 }}><Smartphone size={15} color="var(--primary)" /> Android</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13.5, fontWeight: 700, marginBottom: 6 }}><Smartphone size={15} color="var(--primary)" /> Android (recommandé : l'application officielle)</div>
         <ol style={{ paddingLeft: 20, margin: "0 0 12px" }}>
-          <li style={li}>Ouvrez le lien de l'application dans <b>Chrome</b>.</li>
-          <li style={li}>Touchez le menu <b>⋮</b> en haut à droite.</li>
-          <li style={li}>Choisissez <b>« Installer l'application »</b> ou <b>« Ajouter à l'écran d'accueil »</b>.</li>
+          <li style={li}>Téléchargez le fichier <b>Life-Word-Mission.apk</b> (bouton ci-dessous, ou reçu par WhatsApp).</li>
+          <li style={li}>Ouvrez-le et autorisez <b>« installer des applications inconnues »</b> si le téléphone le demande.</li>
+          <li style={li}>Touchez <b>Installer</b>. Les mises à jour s'installent ensuite par-dessus, sans rien perdre.</li>
         </ol>
+        <a href={APK_LINK} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "var(--primary)", color: "#fff", borderRadius: 10, padding: "10px 0", fontSize: 13, fontWeight: 700, textDecoration: "none", margin: "0 0 14px" }}>
+          <Smartphone size={15} /> Télécharger l'application Android
+        </a>
         <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13.5, fontWeight: 700, marginBottom: 6 }}><Smartphone size={15} color="var(--primary)" /> iPhone</div>
         <ol style={{ paddingLeft: 20, margin: 0 }}>
           <li style={li}>Ouvrez le lien dans <b>Safari</b>.</li>
@@ -1777,6 +1807,7 @@ const inputStyle = {
 };
 
 function ModalShell({ title, onClose, children }) {
+  useRetour(onClose);
   return (
     <div style={{
       position: "absolute", inset: 0, background: "rgba(20,22,28,.45)", zIndex: 60,
@@ -11152,6 +11183,50 @@ function CodesAcces({ codes, setCodes, leadership, natUnlocked, onUnlockNat, sho
   );
 }
 
+
+/* Carte « Application » du Menu : version installée, mise à jour, envoi de l'APK. */
+function CarteApplication({ showToast }) {
+  const [v, setV] = useState(null);
+  const [etat, setEtat] = useState("");
+  const [maj, setMaj] = useState(null);
+  useEffect(() => { versionInstallee().then(setV); }, []);
+  async function verifier() {
+    if (navigator.onLine === false) { showToast("Pas de connexion internet pour vérifier"); return; }
+    setEtat("…"); const m = await chercherMiseAJour(); setMaj(m); setEtat(m ? "" : "ok");
+  }
+  async function envoyer(apk) {
+    try { if (apk) await envoyerApk(); else await envoyerLienApk(); } catch (e) { showToast("Envoi impossible : " + ((e && e.message) || "erreur")); }
+  }
+  const btn = { display: "flex", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 10, padding: "10px 8px", fontSize: 13, fontWeight: 700, border: "1.5px solid var(--primary)", color: "var(--primary)", background: "#fff" };
+  return (
+    <div style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 13, padding: "12px 14px", marginBottom: 18 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <img src="/icon-192.png" alt="" width="44" height="44" style={{ borderRadius: 12 }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 14.5, fontWeight: 700, color: "var(--primary)" }}>{APP_NOM}</div>
+          <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>{NATIF ? `Application Android · version ${v ? v.version : "…"}` : "Version web (navigateur)"}</div>
+        </div>
+        <ShieldCheck size={18} color="#1F7A5C" aria-label="Application officielle signée" />
+      </div>
+      {NATIF ? (
+        <>
+          {maj ? (
+            <button onClick={() => { showToast("Téléchargement… puis ouvrez le fichier pour installer"); ouvrirLien(maj.url); }} style={{ ...btn, width: "100%", marginTop: 10, background: "var(--primary)", color: "#fff" }}><RefreshCw size={14} /> Installer la version {maj.version}</button>
+          ) : (
+            <button onClick={verifier} style={{ ...btn, width: "100%", marginTop: 10 }}><RefreshCw size={14} /> {etat === "…" ? "Vérification…" : etat === "ok" ? "✓ Vous avez la dernière version" : "Rechercher une mise à jour"}</button>
+          )}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+            <button onClick={() => envoyer(true)} style={{ ...btn, background: "#25D366", borderColor: "#25D366", color: "#fff" }}><Send size={14} /> Envoyer l'APK</button>
+            <button onClick={() => envoyer(false)} style={btn}><Share2 size={14} /> Envoyer le lien</button>
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 8, lineHeight: 1.45 }}>« Envoyer l'APK » transmet le fichier d'installation par WhatsApp, même sans internet sur ce téléphone.</div>
+        </>
+      ) : (
+        <button onClick={() => envoyer(false)} style={{ ...btn, width: "100%", marginTop: 10 }}><Smartphone size={14} /> Envoyer le lien de l'application Android</button>
+      )}
+    </div>
+  );
+}
 
 /* ================= STATISTIQUES AFRIQUE & DIASPORA (Président Afrique et son Bureau) =================
    Un seul écran, ouvert avec le code Afrique : population, membres, sauvés, séminaires,

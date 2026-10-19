@@ -2,15 +2,19 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
+// VITE_NATIF=1 : construction pour l'APK Android (fichiers déjà dans l'application, pas de service worker).
+const NATIF = process.env.VITE_NATIF === "1";
+
 export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      disable: NATIF,
       registerType: "autoUpdate",
       // La Bible complète (Louis Segond 1910, un fichier par livre) est gardée sur le téléphone
       // dès l'installation : tous les livres s'ouvrent avec ou sans connexion.
       workbox: {
-        globPatterns: ["**/*.{js,css,html,png,svg,ico,json,webmanifest}"],
+        globPatterns: ["**/*.{js,css,html,png,svg,ico,json,webmanifest,woff2}"],
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
       },
       includeAssets: ["favicon.png", "apple-touch-icon.png"],

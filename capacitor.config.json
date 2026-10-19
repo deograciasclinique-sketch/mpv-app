@@ -1,0 +1,20 @@
+{
+  "appId": "org.lifewordmission.app",
+  "appName": "Life Word Mission",
+  "webDir": "dist",
+  "loggingBehavior": "none",
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false
+  },
+  "server": { "androidScheme": "https", "cleartext": false },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1200,
+      "launchAutoHide": true,
+      "backgroundColor": "#1E2A4A",
+      "showSpinner": false,
+      "androidScaleType": "CENTER_INSIDE"
+    }
+  }
+}

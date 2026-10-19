@@ -1,0 +1,81 @@
+name: Construire l'APK Life Word Mission
+
+# À chaque mise à jour du code sur « main », GitHub construit l'application Android
+# (version finale, signée) et la publie dans « Releases » : lien de téléchargement fixe
+# https://github.com/deograciasclinique-sketch/mpv-app/releases/latest/download/Life-Word-Mission.apk
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apk
+  cancel-in-progress: false
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Installer les dépendances
+        run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+
+      - name: Préparer l'application
+        env:
+          VITE_NATIF: "1"
+        run: |
+          npm run build
+          npx cap sync android
+
+      # La clé de signature (android/app/lwm.keystore) est verrouillée par un mot de passe
+      # gardé uniquement dans le secret GitHub LWM_KEYSTORE_PASSWORD.
+      - name: Construire l'APK signé
+        id: apk
+        working-directory: android
+        env:
+          LWM_KEYSTORE_PASSWORD: ${{ secrets.LWM_KEYSTORE_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          if [ -n "$LWM_KEYSTORE_PASSWORD" ]; then
+            export LWM_KEYSTORE_FILE="$PWD/app/lwm.keystore" LWM_KEY_ALIAS=lwm
+            echo "publier=oui" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Secret LWM_KEYSTORE_PASSWORD absent : APK de TEST seulement (non publié). Ajoutez le secret dans Settings → Secrets and variables → Actions."
+            keytool -genkeypair -keystore "$RUNNER_TEMP/test.keystore" -storetype PKCS12 -alias lwm -keyalg RSA -keysize 2048 -validity 30 -storepass testtest -keypass testtest -dname "CN=Test" >/dev/null
+            export LWM_KEYSTORE_FILE="$RUNNER_TEMP/test.keystore" LWM_KEYSTORE_PASSWORD=testtest LWM_KEY_ALIAS=lwm
+            echo "publier=non" >> "$GITHUB_OUTPUT"
+          fi
+          ./gradlew assembleRelease --no-daemon -Pvc=${{ github.run_number }}
+          cp app/build/outputs/apk/release/app-release.apk ../Life-Word-Mission.apk
+          ls -la ../Life-Word-Mission.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Life-Word-Mission-apk
+          path: Life-Word-Mission.apk
+
+      - name: Publier la version (lien de téléchargement)
+        if: steps.apk.outputs.publier == 'oui'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v2.${{ github.run_number }}
+          name: Life Word Mission v2.${{ github.run_number }}
+          body: |
+            Application Android officielle de Life Word Mission (Afrique et diaspora).
+            Téléchargez **Life-Word-Mission.apk** sur le téléphone, ouvrez-le, autorisez « installer des applications inconnues », puis Installer.
+            Les nouvelles versions s'installent par-dessus l'ancienne, sans perte de données.
+          files: Life-Word-Mission.apk
+          make_latest: true
