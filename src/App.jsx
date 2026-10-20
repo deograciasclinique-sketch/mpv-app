@@ -1122,6 +1122,11 @@ function AppPays() {
   // Connexion internet et nouvelle version de l'APK
   const [enLigne, setEnLigne] = useState(typeof navigator === "undefined" || navigator.onLine !== false);
   const [majApk, setMajApk] = useState(null);
+  // Version web ouverte sur un téléphone Android : proposer l'application officielle (APK).
+  const [proposerApk, setProposerApk] = useState(() => {
+    if (NATIF || !/android/i.test(navigator.userAgent || "")) return false;
+    try { return Date.now() - (Number(localStorage.getItem("lwm-apk-plus-tard")) || 0) > 3 * 864e5; } catch (e) { return true; }
+  });
   useEffect(() => {
     const on = () => setEnLigne(true), off = () => setEnLigne(false);
     window.addEventListener("online", on); window.addEventListener("offline", off);
@@ -1231,6 +1236,14 @@ function AppPays() {
       {!enLigne && (
         <div role="status" style={{ background: "#3A2F12", color: "#F3E7C7", fontSize: 12, fontWeight: 600, padding: "6px 14px", display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
           <span style={{ width: 7, height: 7, borderRadius: 99, background: "#E0A63A", flex: "none" }} /> Hors connexion · la Bible et les données déjà ouvertes restent disponibles
+        </div>
+      )}
+      {proposerApk && (
+        <div role="region" aria-label="Application officielle" style={{ background: "var(--accent-soft)", color: "var(--primary)", padding: "10px 12px 10px 14px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+          <Smartphone size={20} style={{ flex: "none" }} />
+          <span style={{ flex: 1, fontSize: 12.5, lineHeight: 1.35 }}><b style={{ fontSize: 13.5 }}>Nouvelle application officielle</b><br />Plus rapide, la Bible sans internet, mises à jour automatiques.</span>
+          <a href={APK_LINK} onClick={() => showToast("Téléchargement… puis ouvrez le fichier pour installer")} style={{ background: "var(--primary)", color: "#fff", borderRadius: 9, padding: "8px 11px", fontSize: 12.5, fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap" }}>Installer</a>
+          <button onClick={() => { try { localStorage.setItem("lwm-apk-plus-tard", String(Date.now())); } catch (e) {} setProposerApk(false); }} aria-label="Plus tard" style={{ padding: 4, display: "flex" }}><X size={15} /></button>
         </div>
       )}
       {majApk && (
