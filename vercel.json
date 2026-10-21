@@ -1,0 +1,6 @@
+{
+  "redirects": [
+    { "source": "/apk", "destination": "https://github.com/deograciasclinique-sketch/mpv-app/releases/latest/download/Life-Word-Mission.apk", "permanent": false },
+    { "source": "/android", "destination": "https://github.com/deograciasclinique-sketch/mpv-app/releases/latest/download/Life-Word-Mission.apk", "permanent": false }
+  ]
+}
